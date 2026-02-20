@@ -1,3 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 KeemenaLM = "2fc6a9bc-fb8b-4174-8db3-ef58dc8a472f"
+
+[compat]
+Documenter = "1"
