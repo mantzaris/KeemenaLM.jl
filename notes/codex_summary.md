@@ -56,3 +56,18 @@
 - [ ] Implement stable backend-agnostic weight mapping in `src/backends/flux/weights_flux.jl` and `src/backends/lux/weights_lux.jl`.
 - [ ] Implement generation loop + sampling/stopping in `src/core/generation/*.jl`.
 - [ ] Implement bundle IO roundtrip (`bundle_save.jl`, `bundle_load.jl`, `weights_jld2.jl`) and add non-broken integration coverage.
+
+## Documenter missing docs fix (API inclusion)
+
+### Files changed
+- `docs/src/api.md` (created): Added a single canonical `@autodocs` block for `KeemenaLM.Core`, `KeemenaLM.FluxBackend`, and `KeemenaLM.LuxBackend` with `Private = false`.
+- `docs/make.jl` (edited): Kept `checkdocs = :exports` enabled and added the API page to `pages` as `"API" => "api.md"`; also applied small readability formatting only.
+- `docs/src/index.md` (edited): Kept the placeholder home content and added a short section linking to the API reference page.
+
+### Why docs were failing and how this resolves it
+- Failure mode: Documenter was run with `checkdocs = :exports`, but the manual had no canonical `@docs`/`@autodocs` blocks, so exported docstrings were not included and triggered `[:missing_docs]`.
+- Fix: The new `docs/src/api.md` provides one canonical `@autodocs` block that includes exported docstrings from the scaffold modules, and `docs/make.jl` now includes this page in the built manual.
+- Result: The expected `:missing_docs` failure mode is addressed without changing implementation logic.
+
+### Optional formatting changes
+- Reformatted `docs/make.jl` keyword arguments into a clearer multi-line style with no behavior changes.

@@ -8,3 +8,8 @@ The repository is currently scaffolded with:
 - a minimal test suite
 
 Implementation will be added in future commits.
+
+## API
+
+See the generated API reference page for exported types and functions:
+- [API Reference](api.md)
