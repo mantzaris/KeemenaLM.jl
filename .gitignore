@@ -18,7 +18,16 @@ docs/site/
 
 # Julia package manifests (do not commit for packages)
 Manifest*.toml
+Manifest.toml
 
 # Local preferences
 LocalPreferences.toml
 JuliaLocalPreferences.toml
+
+# Model bundle outputs and weights
+*.jld2
+*.safetensors
+bundles/
+artifacts/bundles/
+tmp/
+scratch/
