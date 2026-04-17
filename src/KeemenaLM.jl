@@ -11,6 +11,7 @@ export
     validate,
     Bundle,
     BundleManifest,
+    resolve_bundle,
     save_bundle,
     load_bundle,
     GenerationConfig,

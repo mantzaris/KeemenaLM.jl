@@ -24,6 +24,7 @@ export
     BUNDLE_SCHEMA_VERSION,
     BundleManifest,
     Bundle,
+    resolve_bundle,
     save_weights_jld2,
     load_weights_jld2,
     save_bundle,
@@ -43,6 +44,7 @@ include("generation/generate.jl")
 include("generation/chat.jl")
 
 include("io/bundle_schema.jl")
+include("io/model_sources.jl")
 include("io/weights_jld2.jl")
 include("io/bundle_save.jl")
 include("io/bundle_load.jl")
