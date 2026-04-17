@@ -31,6 +31,11 @@ export
     load_bundle,
     causal_lm_cross_entropy,
     Trainer,
+    CHECKPOINT_SCHEMA_VERSION,
+    CheckpointManifest,
+    Checkpoint,
+    save_checkpoint,
+    load_checkpoint,
     train_step!
 
 include("types.jl")
@@ -51,5 +56,6 @@ include("io/bundle_load.jl")
 
 include("training/loss.jl")
 include("training/trainer.jl")
+include("training/checkpoints.jl")
 
 end # module Core

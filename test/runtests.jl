@@ -12,6 +12,7 @@ using KeemenaLM
 
     include("integration/test_forward_flux.jl")
     include("integration/test_bundle_flux.jl")
+    include("integration/test_checkpoint_flux.jl")
     include("integration/test_forward_lux.jl")
     include("integration/test_generate_flux.jl")
     include("integration/test_generate_lux.jl")
