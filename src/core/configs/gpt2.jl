@@ -25,8 +25,10 @@ function validate(config::GPT2Config)
     config.num_heads > 0 || throw(ArgumentError("num_heads must be > 0"))
     config.embedding_size > 0 || throw(ArgumentError("embedding_size must be > 0"))
     config.ffn_hidden_size > 0 || throw(ArgumentError("ffn_hidden_size must be > 0"))
+    isfinite(config.dropout_probability) || throw(ArgumentError("dropout_probability must be finite"))
     0.0 <= config.dropout_probability < 1.0 || throw(ArgumentError("dropout_probability must be in [0.0, 1.0)"))
     config.embedding_size % config.num_heads == 0 || throw(ArgumentError("embedding_size must be divisible by num_heads"))
+    config.num_heads <= config.embedding_size || throw(ArgumentError("num_heads must be <= embedding_size"))
 
     if config.bos_token_id !== nothing
         1 <= config.bos_token_id <= config.vocab_size || throw(ArgumentError("bos_token_id must be in 1:vocab_size"))

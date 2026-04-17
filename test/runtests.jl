@@ -5,6 +5,9 @@ using KeemenaLM
     include("unit/test_masking.jl")
     include("unit/test_configs.jl")
     include("unit/test_bundle_schema.jl")
+    include("unit/test_sampling.jl")
+    include("unit/test_stopping.jl")
+    include("unit/test_loss.jl")
 
     include("integration/test_forward_flux.jl")
     include("integration/test_forward_lux.jl")
