@@ -10,21 +10,24 @@ function causal_lm_cross_entropy(logits, targets)
         throw(ArgumentError("targets shape must match the logits sequence and batch dimensions"))
     sequence_length > 0 || throw(ArgumentError("sequence_length must be > 0"))
 
-    total_loss = 0.0
     token_count = sequence_length * batch_size
+    target_min = minimum(targets)
+    target_max = maximum(targets)
+    1 <= target_min <= target_max <= vocab_size ||
+        throw(ArgumentError("target token ids must stay within 1:vocab_size"))
 
-    for batch_index in 1:batch_size
-        for sequence_index in 1:sequence_length
-            target_token_id = targets[sequence_index, batch_index]
-            1 <= target_token_id <= vocab_size ||
-                throw(ArgumentError("target token id $(target_token_id) is outside 1:vocab_size"))
+    flat_logits = reshape(logits, vocab_size, :)
+    flat_targets = reshape(targets, 1, :)
+    device_targets = similar(flat_logits, Int, size(flat_targets)...)
+    device_targets .= flat_targets
+    max_logits = maximum(flat_logits; dims = 1)
+    log_normalizers = max_logits .+ log.(sum(exp.(flat_logits .- max_logits); dims = 1))
+    log_probs = flat_logits .- log_normalizers
 
-            token_logits = @view logits[:, sequence_index, batch_index]
-            max_logit = maximum(token_logits)
-            log_normalizer = max_logit + log(sum(exp.(token_logits .- max_logit)))
-            total_loss += log_normalizer - token_logits[target_token_id]
-        end
-    end
-
-    return total_loss / token_count
+    class_ids = similar(flat_logits, Int, vocab_size, 1)
+    class_ids .= reshape(collect(1:vocab_size), :, 1)
+    # Use broadcasted equality rather than scalar indexing so the same path works on CPU and GPU arrays.
+    target_mask = class_ids .== device_targets
+    selected_log_probs = sum(log_probs .* target_mask; dims = 1)
+    return -sum(selected_log_probs) / token_count
 end

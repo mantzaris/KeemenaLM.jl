@@ -3,13 +3,13 @@ module FluxBackend
 using Flux
 
 import ..Core: AbstractCausalLM, Bundle, GPT2Config, Trainer, validate
-import ..Core: causal_mask, extract_weights, lm_forward, load_weights!, model_config, train_step!
+import ..Core: causal_lm_cross_entropy, causal_mask, extract_weights, lm_forward, load_weights!, model_config, train_step!
 
 include("gpt2_flux.jl")
 include("weights_flux.jl")
 include("train_flux.jl")
 
-export FluxGPT2Model, build_gpt2_model, instantiate
+export FluxGPT2Model, build_gpt2_model, instantiate, move_model_to_device, move_batch_to_device, has_functional_cuda_gpu
 
 function instantiate(config_or_bundle; keyword_arguments...)
     if config_or_bundle isa GPT2Config

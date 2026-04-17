@@ -60,19 +60,19 @@ function load_weights!(model::FluxGPT2Model, weights::Dict{String, Any})
     return model
 end
 
-function load_matrix!(destination::Matrix{Float32}, weights::Dict{String, Any}, key::String)
+function load_matrix!(destination::AbstractMatrix{<:AbstractFloat}, weights::Dict{String, Any}, key::String)
     source = get_required_weight(weights, key)
     size(source) == size(destination) ||
         throw(ArgumentError("weight $(key) has shape $(size(source)), expected $(size(destination))"))
-    destination .= Float32.(source)
+    destination .= convert.(eltype(destination), source)
     return destination
 end
 
-function load_vector!(destination::Vector{Float32}, weights::Dict{String, Any}, key::String)
+function load_vector!(destination::AbstractVector{<:AbstractFloat}, weights::Dict{String, Any}, key::String)
     source = get_required_weight(weights, key)
     size(source) == size(destination) ||
         throw(ArgumentError("weight $(key) has shape $(size(source)), expected $(size(destination))"))
-    destination .= Float32.(source)
+    destination .= convert.(eltype(destination), source)
     return destination
 end
 
