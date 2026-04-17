@@ -1,12 +1,13 @@
-## KeemenaLM.jl repository scaffold and boundaries (guiding document, no implementations)
+## KeemenaLM.jl repository scaffold and boundaries (aligned plan)
 
-This note defines the concrete repository scaffold for KeemenaLM.jl and the boundary rules that keep v0.1 shippable. It is intentionally a guiding document: it specifies folders, responsibilities, and required interfaces, but does not include function bodies or full code.
+This note defines the concrete repository scaffold for KeemenaLM.jl and the boundary rules that keep v0.1 shippable. It is a planning document: it specifies folders, responsibilities, and required interfaces, but not full implementations.
 
 The v0.1 priority is a single golden path:
-- Train a tiny GPT-2 style decoder-only model (Flux or Lux).
-- Save a portable bundle (JSON config + JLD2 weights).
-- Load the bundle.
-- Generate text and run a minimal chat loop.
+- train a tiny GPT-2 style decoder-only model with Flux on NVIDIA GPU
+- save a resumable training checkpoint
+- save a portable inference bundle
+- load the bundle from a local directory or Julia artifact
+- generate text and run a minimal REPL chat loop on CPU or NVIDIA GPU
 
 Everything else is deferred unless it directly supports this path.
 
@@ -15,30 +16,39 @@ Everything else is deferred unless it directly supports this path.
 ## Non-negotiable constraints
 
 ### Scope control
-- v0.1 ships one architecture: GPT-2 style decoder-only transformer.
-- Prefer correctness and readability over performance optimizations.
-- KV cache and streaming are allowed only if they do not risk shipping v0.1.
+- v0.1 ships one architecture: GPT-2 style decoder-only transformer
+- prefer correctness and readability over optimization
+- REPL-first UX is the target, not CLI-first UX
+- KV cache and streaming are deferred unless they do not threaten v0.1 delivery
 
 ### Backend boundaries
-- `src/core/` must not import Flux or Lux.
-  - No `using Flux`
-  - No `using Lux`
-- Only:
-  - `src/backends/flux/`
-  - `src/backends/lux/`
-  may import Flux/Lux.
-- Core must call backend functionality only through a small, explicit interface (multiple dispatch).
+- `src/core/` must not import Flux or Lux
+- only `src/backends/flux/` and `src/backends/lux/` may import those frameworks
+- core must call backend functionality only through a small explicit interface
+- public entry points must accept `backend::Symbol`
+
+v0.1 backend support policy:
+- `:flux` is the supported backend for training and inference
+- `:lux` is part of the repository structure and public API plan, but may remain partial until later
 
 ### Bundle and weight policy
-- Trained weights must not be committed to git.
+- trained weights must not be committed to git
+- checkpoints and inference bundles are different products
 - v0.1 bundle uses:
-  - JSON for bundle manifest and model config
+  - JSON for bundle manifest and config
   - JLD2 for weights
-- Plan for safetensors later via an adapter file, but do not block v0.1 on it.
+- small official demo bundles may be published through Julia Artifacts
+- model-loading code must treat Artifacts as one source among several possible sources
+
+### Device policy
+- v0.1 training assumes NVIDIA GPU
+- v0.1 inference must work on CPU
+- v0.1 inference may also run on NVIDIA GPU
+- non-NVIDIA GPU support is out of scope for v0.1
 
 ### Token id conventions
-- KeemenaLM internal token ids are treated as 1-based integers (Julia-native indexing).
-- If a tokenizer produces 0-based ids, the adapter layer must shift appropriately.
+- KeemenaLM internal token ids are 1-based integers
+- if a tokenizer produces 0-based ids, the adapter layer must shift appropriately
 
 ---
 
@@ -73,12 +83,14 @@ KeemenaLM.jl/
         chat.jl                 # ChatSession wrapper (minimal)
       io/
         bundle_schema.jl        # schema version and manifest structure
+        model_sources.jl        # resolve local/artifact/remote-ready bundle sources
         weights_jld2.jl         # JLD2 weights adapter
         bundle_save.jl          # save_bundle()
         bundle_load.jl          # load_bundle()
       training/
         loss.jl                 # causal LM loss (framework-neutral math)
         trainer.jl              # Trainer container, dispatch to backend train_step!
+        checkpoints.jl          # checkpoint save/load helpers and metadata
 
     backends/
       flux/
@@ -92,11 +104,16 @@ KeemenaLM.jl/
         weights_lux.jl          # extract/load weight dictionary <-> Lux parameters/state
         train_lux.jl            # minimal Lux training step
 
+    integrations/
+      subwords.jl
+      preprocessing.jl
+
   examples/                     # optional but recommended for the golden path
     train_tiny_gpt2_flux.jl
     train_tiny_gpt2_lux.jl
     generate_demo.jl
     chat_demo.jl
+    chat_repl.jl
 
   test/
     runtests.jl
@@ -104,6 +121,7 @@ KeemenaLM.jl/
       test_masking.jl
       test_sampling.jl
       test_stopping.jl
+      test_bundle_schema.jl
       test_bundle_io.jl
     integration/
       test_forward_flux.jl
@@ -112,12 +130,12 @@ KeemenaLM.jl/
       test_generate_lux.jl
       test_train_step_flux.jl
       test_train_step_lux.jl
+      test_checkpoint_flux.jl
 ```
 
 Optional (deferred until needed):
-- `docs/` (Documenter.jl)
 - `artifacts/Artifacts.toml` and demo bundles shipped as artifacts
-- `.github/workflows/ci.yml` once tests are stable
+- docs and CI expansion after the golden path is stable
 
 ---
 
@@ -125,14 +143,14 @@ Optional (deferred until needed):
 
 ### Top-level files
 - `Project.toml`
-  - Package dependencies.
-  - v0.1 may depend on Flux and Lux directly, but the source layout must still treat them as backend-only imports.
+  - package dependencies
+  - v0.1 may depend on Flux and Lux directly, but the source layout must still treat them as backend-only imports
 - `README.md`
-  - Explain the golden path workflow.
-  - Show minimal examples for training, saving bundle, loading bundle, generating text.
+  - explain the golden path workflow
+  - show minimal examples for training, saving checkpoints, saving bundles, loading bundles, generating text, and REPL chat
 - `.gitignore`
-  - Must ignore weight files and local bundles.
-  - Must ignore typical Julia build and artifact folders.
+  - must ignore weight files and local bundles
+  - must ignore typical Julia build and artifact folders
 
 ### `src/KeemenaLM.jl`
 Purpose:
@@ -141,54 +159,70 @@ Purpose:
 Must not:
 - Import Flux or Lux.
 Responsibilities:
-- Export user-facing types/functions.
-- Provide a single `instantiate` entry point that selects a backend.
+- export user-facing types/functions
+- provide a single `instantiate` entry point that selects a backend
+- keep backend selection explicit even before Lux parity exists
 
 ### `src/core/`
 Purpose:
-- Framework-neutral logic.
-- Core types, config schema, generation utilities, bundle schema and IO, training containers.
+- framework-neutral logic
+- core types, config schema, generation utilities, bundle schema and IO, source resolution, checkpoint helpers, training containers
 Must not:
-- Import Flux or Lux.
+- import Flux or Lux
 Must:
-- Define the backend interface functions (signatures and expectations).
-- Keep sampling/stopping deterministic given a seed.
+- define the backend interface functions
+- keep sampling/stopping deterministic given a seed
 
 ### `src/backends/flux/`
 Purpose:
-- Flux-specific model construction, forward pass, training step, and weight mapping.
+- Flux-specific model construction, forward pass, training step, and weight mapping
 May:
-- Import Flux and other Flux ecosystem dependencies needed for training.
+- import Flux and other Flux ecosystem dependencies needed for training
 Must:
-- Implement the Core interfaces for Flux model types.
+- implement the Core interfaces for Flux model types
 Must not:
-- Reimplement sampling, stopping, or bundle schema logic.
+- reimplement sampling, stopping, or bundle schema logic
+v0.1 status:
+- primary supported backend
 
 ### `src/backends/lux/`
 Purpose:
-- Lux-specific model construction, forward pass, training step, and weight mapping.
+- Lux-specific model construction, forward pass, training step, and weight mapping
 May:
-- Import Lux and its training ecosystem dependencies.
+- import Lux and its training ecosystem dependencies
 Must:
-- Implement the Core interfaces for Lux model types.
+- implement the Core interfaces for Lux model types
 Must not:
-- Reimplement sampling, stopping, or bundle schema logic.
+- reimplement sampling, stopping, or bundle schema logic
+v0.1 status:
+- reserved backend path
+- can remain partial/stubbed while Flux is stabilized
+
+### `src/integrations/`
+Purpose:
+- thin adapters for sibling Keemena packages
+
+Rules:
+- integration helpers should be optional
+- core generation should still work with any object implementing the tokenizer/preprocessing hooks
 
 ### `examples/`
 Purpose:
-- Scripts that demonstrate the golden path.
+- scripts that demonstrate the golden path
 Rules:
-- Examples may be simple and imperative.
-- Examples can import Flux/Lux directly if needed, but should primarily use the KeemenaLM public API.
+- examples may be simple and imperative
+- examples can import Flux/Lux directly if needed, but should primarily use the KeemenaLM public API
+- at least one example should show REPL-first chat usage
 
 ### `test/`
 Purpose:
-- Staged tests:
-  - Unit tests: core, framework-neutral.
-  - Integration tests: backend behavior and minimal training/generation sanity.
+- staged tests:
+  - unit tests: core, framework-neutral
+  - integration tests: backend behavior and minimal training/generation sanity
 Rules:
-- Unit tests must not require building Flux/Lux models.
-- Integration tests can be skipped or marked broken initially, but should become real as the backends land.
+- unit tests must not require building Flux/Lux models
+- Flux integration tests should become real early
+- Lux tests may begin as placeholders/skips until Lux support is active
 
 ---
 
@@ -205,11 +239,10 @@ Rules:
   - `KeemenaLM.Core`
   - `KeemenaLM.FluxBackend` (as a module)
   - `KeemenaLM.LuxBackend` (as a module)
-- `KeemenaLM.Core` may import:
-  - JSON3, StructTypes, JLD2, Random, LinearAlgebra, Statistics, etc.
-  - It must not import Flux or Lux.
-- `KeemenaLM.FluxBackend` may import Flux and extend Core interface methods.
-- `KeemenaLM.LuxBackend` may import Lux and extend Core interface methods.
+- `KeemenaLM.Core` may import JSON3, StructTypes, JLD2, Random, LinearAlgebra, Statistics, Downloads, Artifacts-related helpers, and similar general-purpose packages
+- `KeemenaLM.Core` must not import Flux or Lux
+- `KeemenaLM.FluxBackend` may import Flux and NVIDIA-related support used by Flux
+- `KeemenaLM.LuxBackend` may import Lux and NVIDIA-related support used by Lux
 
 ---
 
@@ -261,8 +294,9 @@ train_step!(
 ```
 
 Notes:
-- `cache` can remain `nothing` in v0.1.
-- If a backend wants to introduce a cache type later, the same signature supports it.
+- `cache` can remain `nothing` in v0.1
+- if a backend wants to introduce a cache type later, the same signature supports it
+- weight dictionary keys must follow a backend-independent parameter schema for GPT-2
 
 ### Tokenizer and preprocessing integration points
 Core defines adapter hooks that upstream Keemena packages can extend.
@@ -274,7 +308,7 @@ tokenizer_decode(tokenizer, token_ids::AbstractVector{<:Integer}) -> String
 ```
 
 v0.1 requirement:
-- Generation and chat must work with any tokenizer/preprocessing object that implements these methods.
+- generation and chat must work with any tokenizer/preprocessing object that implements these methods
 
 ---
 
@@ -304,9 +338,11 @@ generate(
 ```
 
 v0.1 behavior requirements:
-- Deterministic sampling when `seed` is provided and running on CPU.
-- Truncate prompt to the model context length.
-- Stop on EOS token when `eos_token_id` is provided.
+- deterministic sampling when `seed` is provided and running on CPU
+- truncate prompt to the model context length
+- stop on EOS token when `eos_token_id` is provided
+- callable on CPU
+- callable on NVIDIA GPU when supported by the active backend
 
 ### Minimal chat wrapper
 ```julia
@@ -315,12 +351,39 @@ chat!(session::ChatSession, user_text::AbstractString; overrides...) -> String
 ```
 
 v0.1 behavior requirements:
-- Maintain a simple in-memory message history.
-- Build a plain-text prompt format that is easy to replace later.
+- maintain a simple in-memory message history
+- build a plain-text prompt format that is easy to replace later
+- prefer REPL-first ergonomics
 
 ---
 
-## Bundle format and IO requirements (v0.1)
+## Checkpoints and bundles
+
+Training checkpoints and inference bundles should stay distinct.
+
+### Checkpoint requirements
+Purpose:
+- resume training
+
+Should include:
+- model weights
+- optimizer state
+- step or epoch counters
+- backend symbol
+- config snapshot
+- RNG state if practical
+
+Recommended entry points:
+```julia
+save_checkpoint(path, trainer, model; metadata...) -> path
+load_checkpoint(path)
+```
+
+### Bundle requirements
+Purpose:
+- inference
+- sharing
+- artifact-published demo models
 
 Bundles are directories on disk. v0.1 requires round-trip correctness:
 - save bundle -> load bundle -> instantiate -> generate
@@ -341,9 +404,11 @@ Fields (minimum viable set):
 - `model_config_file::String` (relative path)
 - `weights_file::String` (relative path)
 - `weights_format::String` (v0.1: "jld2")
+- `parameter_schema::String`
 Optional fields:
 - tokenizer reference path or inline metadata pointer
 - preprocessing reference path or inline metadata pointer
+- distribution metadata for local/artifact/remote provenance
 - `metadata::Dict{String, Any}` (training details optional)
 
 ### Required IO entry points
@@ -352,12 +417,29 @@ save_bundle(directory_path::AbstractString, bundle::Bundle) -> directory_path
 load_bundle(directory_path::AbstractString) -> Bundle
 ```
 
+### Bundle source resolution
+The package should resolve a source to a local bundle directory before normal load logic runs.
+
+Recommended entry points:
+```julia
+resolve_bundle(source) -> local_directory_path
+load_bundle(source) -> Bundle
+```
+
+v0.1 supported sources:
+- local directory
+- Julia artifact
+
+Later sources:
+- direct URL
+- Hugging Face-style remote repository
+
 ### Weights portability requirement
 - `extract_weights` must produce a stable dictionary whose keys do not depend on Flux vs Lux specifics.
 - `load_weights!` must accept that dictionary and populate the model.
 
 v0.1 allowance:
-- Start with one stable naming convention that both backends implement, then iterate.
+- start with one stable naming convention that both backends implement, then iterate
 
 ---
 
@@ -378,16 +460,18 @@ Constraints:
 Located under `test/integration/`.
 Must cover:
 - forward pass shape conventions for Flux
-- forward pass shape conventions for Lux
-- deterministic generation on CPU with fixed seed (Flux and Lux)
+- deterministic generation on CPU with fixed seed
 - minimal training step sanity:
   - finite loss
   - parameters update
   - ideally loss decreases on a trivial batch after a few steps
+- checkpoint roundtrip for the supported backend
+- optional NVIDIA GPU smoke tests when practical
 
 Practical staging:
-- Integration tests may start as skipped/broken until the backend implementations exist.
-- As soon as a backend forward pass exists, its integration tests should become active.
+- integration tests may start as skipped/broken until the backend implementations exist
+- Flux integration tests should become active first
+- Lux integration tests should activate as Lux support lands
 
 ---
 
@@ -402,7 +486,8 @@ Practical staging:
 - Jobs:
   - core unit tests
   - Flux integration tests
-  - Lux integration tests
+  - Lux integration tests when Lux is active
+  - optional NVIDIA GPU smoke job if runners exist
 
 ---
 
@@ -430,15 +515,17 @@ This mapping is the checklist for v0.1 work.
 - Requirements:
   - implement `lm_forward` for the Flux model type
   - enforce shape conventions
+  - support training on NVIDIA GPU
+  - support inference on CPU and NVIDIA GPU
   - integration forward test
 
 ### 4) GPT-2 model (Lux backend)
 - Files:
   - `src/backends/lux/gpt2_lux.jl`
 - Requirements:
-  - implement `lm_forward` for the Lux model type
-  - enforce shape conventions
-  - integration forward test
+  - preserve matching module and API shape
+  - preserve the backend-independent parameter naming contract
+  - may remain a stub until later
 
 ### 5) Generation loop and sampling
 - Files:
@@ -453,29 +540,40 @@ This mapping is the checklist for v0.1 work.
 ### 6) Bundle schema and save/load (JSON + JLD2)
 - Files:
   - `src/core/io/bundle_schema.jl`
+  - `src/core/io/model_sources.jl`
   - `src/core/io/weights_jld2.jl`
   - `src/core/io/bundle_save.jl`
   - `src/core/io/bundle_load.jl`
 - Requirements:
   - load/save roundtrip tests (dummy weights)
   - instantiate from loaded bundle must be supported (backend code)
+  - local and artifact source resolution
 
 ### 7) Weight mapping for both backends
 - Files:
   - `src/backends/flux/weights_flux.jl`
   - `src/backends/lux/weights_lux.jl`
 - Requirements:
-  - `extract_weights` and `load_weights!` implemented for both backends
+  - `extract_weights` and `load_weights!` implemented for Flux
+  - Lux path may begin as a naming-contract stub
   - dictionary keys must be stable and documented (even if minimal)
 
-### 8) Minimal training step sanity
+### 8) Checkpoint save/load
+- Files:
+  - `src/core/training/checkpoints.jl`
+- Requirements:
+  - persist enough state to resume training later
+  - clearly separate checkpoint semantics from inference bundle semantics
+
+### 9) Minimal training step sanity
 - Files:
   - `src/core/training/loss.jl`
   - `src/core/training/trainer.jl`
   - `src/backends/flux/train_flux.jl`
   - `src/backends/lux/train_lux.jl`
 - Requirements:
-  - one training step updates parameters
+  - Flux path: one training step updates parameters on the supported NVIDIA GPU path
+  - Lux path may be deferred
   - basic integration tests
 
 ---
@@ -484,9 +582,9 @@ This mapping is the checklist for v0.1 work.
 
 - KV cache and fast decoding
 - Streaming generation callbacks
-- Full training loops, checkpointing, evaluation metrics suite
-- Artifact-distributed demo bundles
+- Full training loops and evaluation metrics suite
 - ONNX export/inference
-- Full docs site with Documenter
+- Lux backend parity
+- Direct URL and Hugging Face-style model distribution
 
-v0.1 should remain small and correct. Add features only when the golden path is stable and tested.
+v0.1 should remain small, explicit, and testable.
