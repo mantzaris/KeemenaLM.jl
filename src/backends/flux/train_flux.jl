@@ -8,10 +8,11 @@ function train_step!(
     trainer.optimizer === nothing && (trainer.optimizer = Flux.Descent(0.01f0))
     trainer.optimizer_state === nothing && (trainer.optimizer_state = Flux.setup(trainer.optimizer, trainer.model))
     trainer.backend == :unknown && (trainer.backend = :flux)
+    loss_target_ids = move_like(target_token_ids, trainer.model.token_embedding)
 
     loss_function(model) = begin
         logits, _ = lm_forward(model, input_token_ids; cache = nothing, is_training = false)
-        return causal_lm_cross_entropy(logits, target_token_ids)
+        return causal_lm_cross_entropy(logits, loss_target_ids)
     end
 
     loss_value, model_gradients = Flux.withgradient(loss_function, trainer.model)

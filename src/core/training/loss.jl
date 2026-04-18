@@ -18,16 +18,12 @@ function causal_lm_cross_entropy(logits, targets)
 
     flat_logits = reshape(logits, vocab_size, :)
     flat_targets = reshape(targets, 1, :)
-    device_targets = similar(flat_logits, Int, size(flat_targets)...)
-    device_targets .= flat_targets
     max_logits = maximum(flat_logits; dims = 1)
     log_normalizers = max_logits .+ log.(sum(exp.(flat_logits .- max_logits); dims = 1))
     log_probs = flat_logits .- log_normalizers
 
-    class_ids = similar(flat_logits, Int, vocab_size, 1)
-    class_ids .= reshape(collect(1:vocab_size), :, 1)
     # Use broadcasted equality rather than scalar indexing so the same path works on CPU and GPU arrays.
-    target_mask = class_ids .== device_targets
+    target_mask = reshape(1:vocab_size, :, 1) .== flat_targets
     selected_log_probs = sum(log_probs .* target_mask; dims = 1)
     return -sum(selected_log_probs) / token_count
 end

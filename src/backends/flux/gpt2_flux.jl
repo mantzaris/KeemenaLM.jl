@@ -226,7 +226,7 @@ function (attention::FluxCausalSelfAttention)(x::AbstractArray{<:Real, 3})
     keys = reshape(attention.k_proj(x), head_size, attention.num_heads, sequence_length, batch_size)
     values = reshape(attention.v_proj(x), head_size, attention.num_heads, sequence_length, batch_size)
 
-    mask = move_like(causal_mask(sequence_length), x)
+    mask = causal_mask_like(sequence_length, x)
     scale = inv(sqrt(Float32(head_size)))
     batch_outputs = [
         cat(
@@ -260,6 +260,12 @@ function attention_head_output(
 end
 
 move_like(data, reference) = is_cuda_array(reference) ? cuda_cu(data) : Flux.cpu(data)
+
+function causal_mask_like(sequence_length::Int, reference)
+    return Flux.Zygote.ignore() do
+        move_like(causal_mask(sequence_length), reference)
+    end
+end
 
 function (block::FluxTransformerBlock)(x::AbstractArray{<:Real, 3})
     attention_output = block.attention(block.attention_norm(x))
