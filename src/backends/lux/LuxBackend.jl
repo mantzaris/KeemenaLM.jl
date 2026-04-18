@@ -2,7 +2,7 @@ module LuxBackend
 
 using Lux
 
-import ..Core: AbstractCausalLM, Bundle, GPT2Config, Trainer, validate
+import ..Core: AbstractCausalLM, Bundle, GPT2Config, Trainer, causal_mask, validate
 import ..Core: extract_weights, lm_forward, load_weights!, model_config, train_step!
 
 include("gpt2_lux.jl")
