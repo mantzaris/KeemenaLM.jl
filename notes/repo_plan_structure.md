@@ -1,5 +1,9 @@
 ## KeemenaLM.jl repository scaffold and boundaries (aligned plan)
 
+Status note:
+- the original v0.1 staged roadmap is complete through Stage 7
+- this file should now be read as a structure and boundary reference, not as a pending execution checklist
+
 This note defines the concrete repository scaffold for KeemenaLM.jl and the boundary rules that keep v0.1 shippable. It is a planning document: it specifies folders, responsibilities, and required interfaces, but not full implementations.
 
 The v0.1 priority is a single golden path:

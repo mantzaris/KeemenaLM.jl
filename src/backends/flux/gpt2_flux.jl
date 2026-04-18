@@ -263,7 +263,7 @@ end
 move_like(data, reference) = is_cuda_array(reference) ? cuda_cu(data) : Flux.cpu(data)
 
 function causal_mask_like(sequence_length::Int, reference)
-    return Flux.Zygote.ignore() do
+    return ChainRulesCore.ignore_derivatives() do
         move_like(causal_mask(sequence_length), reference)
     end
 end

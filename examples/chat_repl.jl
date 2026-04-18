@@ -28,8 +28,7 @@ for model_info in available_models()
     println("    tokenizer note: ", model_info.tokenizer_note)
 end
 
-bundle = load_bundle(ARGS[1])
-model = instantiate(bundle; backend = :flux)
+model = load_model(ARGS[1]; backend = :flux)
 tokenizer = DemoCharTokenizer(" abcdefghijklmnopqrstuvwxyz.,!?")
 
 session = ChatSession(

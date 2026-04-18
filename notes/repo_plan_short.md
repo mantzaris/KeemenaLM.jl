@@ -1,5 +1,9 @@
 ## KeemenaLM.jl concise package summary (aligned plan)
 
+Status note:
+- the original v0.1 staged roadmap is complete through Stage 7
+- this file should now be read as an architecture and scope reference, not as a pending execution checklist
+
 ### What KeemenaLM.jl is
 KeemenaLM.jl is the model layer in the Keemena stack. It provides Julia-native decoder-only transformer language models, training and inference utilities, and portable model bundles for reuse later.
 

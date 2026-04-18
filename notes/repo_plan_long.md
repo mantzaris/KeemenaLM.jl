@@ -1,5 +1,9 @@
 ## KeemenaLM.jl extended package summary (aligned plan)
 
+Status note:
+- the original v0.1 staged roadmap is complete through Stage 7
+- this file should now be read as an architecture and scope reference, not as a pending execution checklist
+
 ### Purpose and scope
 KeemenaLM.jl should make Julia capable of:
 1) Training a small decoder-only transformer language model end to end.

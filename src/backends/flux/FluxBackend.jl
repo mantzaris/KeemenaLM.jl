@@ -1,5 +1,6 @@
 module FluxBackend
 
+using ChainRulesCore
 using Flux
 
 import ..Core: AbstractCausalLM, Bundle, GPT2Config, Trainer, validate

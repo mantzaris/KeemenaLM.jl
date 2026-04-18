@@ -1,13 +1,21 @@
 # KeemenaLM.jl
 
-This documentation site is a placeholder.
+KeemenaLM.jl is a Julia proof-of-concept language-model package for a small GPT-2 style decoder-only model.
 
-The repository is currently scaffolded with:
-- CI (tests + docs build/deploy)
-- a minimal package entry point
-- a minimal test suite
+## Supported v0.1 state
 
-Implementation will be added in future commits.
+- Flux inference on CPU
+- Flux training path, including checkpoints and NVIDIA/CUDA support
+- portable bundles and bundle load/save
+- REPL chat from a saved bundle
+- official demo model flow through local artifact registration
+- Lux inference on CPU using the shared portable weight schema
+
+## Not yet supported
+
+- Lux training parity
+- tokenizer/preprocessing persistence inside bundles
+- remote official model hosting or download integration
 
 ## API
 
