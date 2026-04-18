@@ -1,93 +1,96 @@
-# Next planned experiments
+# Next Planned Experiments
 
-This note records the next intended experiment sequence after the completed synthetic CFG phase and the first two local real-text sanity checks.
+This note records the current state of the bounded experiment track after the synthetic CFG studies, the local real-text corpus preparation work, and the prepared-corpus real-text sweeps.
 
-Current completed experiment work:
+## Completed Experiment Trail
+
+Synthetic CFG phase:
 - first bounded CFG experiment
 - fixed-sentence-count CFG complexity sweep
 - fixed-complexity budget sweep at `complexity = 5`
 - fixed-complexity width sweep at `complexity = 5`
 - fixed-complexity depth sweep at `complexity = 5`
 - token-controlled CFG complexity sweep
-- first small local real-text sanity check
-- second larger local real-text sanity check
 
-Current interpretation:
-- the pipeline works end to end
-- the tiny Flux GPT-2 clearly learns low-complexity CFG structure
-- learning degrades as CFG complexity rises, even after controlling training token volume
-- at `complexity = 5`, more epochs help a little, width helps more than depth, and the setup still looks capacity-limited
-- the real-text path also works end to end, but the two local markdown corpora are too small and repetitive to produce useful text quality
-- the next bottleneck is better real-text data, not more architecture churn
+Local real-text phase:
+- first small local markdown/text sanity check
+- second larger local markdown/text sanity check
+- better local real-text corpus selection and preparation
+- prepared better local real-text char-level baseline run
+- prepared-corpus subword experiment and step-matched subword follow-up
+- prepared-corpus width sweep
+- prepared-corpus budget sweep
+- prepared-corpus context-length sweep
+- prepared-corpus second width sweep
+- prepared-corpus budget extension sweeps through `22` epochs
 
----
+## Current Best Real-Text Recipe
 
-## Immediate next experiment
+Current best tested recipe:
+- corpus: `tmp/better_local_real_text_corpus_prepared/dataset`
+- backend: `:flux`
+- tokenizer path: char-level experiment-local tokenizer
+- `context_length = 48`
+- `num_layers = 2`
+- `num_heads = 2`
+- `embedding_size = 128`
+- `ffn_hidden_size = 256`
+- `batch_size = 16`
+- `learning_rate = 0.01f0`
+- deterministic seed style unchanged across prepared-corpus comparisons
 
-### Better local real-text corpus
+Current best bounded result:
+- `epochs = 22`
+- validation loss `2.8881`
+- test loss `2.8768`
+
+## Current Interpretation
+
+- the package pipeline is stable end to end for training, checkpoints, bundle export/load, and generation
+- the synthetic CFG phase established that the tiny model learns controlled structure and responds to capacity and budget changes
+- the prepared better local real-text corpus is the best current real-text setup
+- the first subword path did not beat the char-level baseline under the tested conditions
+- width helped up to `128 / 256`, then flattened or turned over
+- longer context did not help in the tested setup
+- training budget remains the strongest positive signal, though gains are now showing diminishing returns
+
+## Best Next Experiment
+
+### Small optimizer or training-recipe change at the current best recipe
 
 Purpose:
-- keep the current training, checkpoint, bundle, and generation path stable
-- use a somewhat larger and cleaner local real-text corpus in the same general technical-writing style
-- test whether more natural-text volume and variety improve behavior more than the tiny markdown-only sanity-check corpora did
+- test whether the current recipe is now limited more by optimization than by raw epoch count
+- keep architecture, tokenizer path, corpus, checkpoint flow, and bundle flow stable
 
-Recommended control:
-- keep the current tiny model and training recipe fixed first
-- add more locally controlled prose before changing architecture again
-- prefer one coherent corpus extension over a mixed noisy grab bag
-- keep deterministic split creation and the same simple tokenizer path for the next run
-
-Primary outputs:
-- train, validation, and test loss
-- sample outputs after bundle reload
-- token and example-count stats
-- a direct comparison against the current small and larger local-text baselines
+Recommended controls:
+- start from the current best `128 / 256`, `context_length = 48` recipe
+- change only one training-recipe variable at a time
+- examples:
+  - learning-rate sweep
+  - optimizer choice or optimizer hyperparameter change
+  - simple learning-rate decay if kept narrowly scoped
 
 Decision target:
-- if a better local corpus materially improves results, the next bottleneck is still mostly data
-- if a better local corpus barely helps, the next bottleneck is more likely tokenizer quality, training recipe limits, or model capacity on natural text
+- if a small training-recipe change beats the current `22`-epoch baseline cleanly, the next bottleneck is optimization rather than architecture
+- if it does not, then one more bounded budget extension is still defensible before bigger changes
 
----
+## Alternate Conservative Next Step
 
-## Second follow-up experiment
+### One more bounded budget extension
 
-### Small external real-text dataset or better curated local corpus
+If you want a cleaner saturation curve before changing optimizer behavior:
+- keep the current best recipe fixed
+- extend epochs one more step beyond `22`
+- stop if validation/test gains become negligible or begin to reverse
 
-Only do this after the better local real-text corpus run above.
+## Not The Next Step
 
-Purpose:
-- move beyond repo docs and notes while still keeping the experiment small, explicit, and legally clear
-
-Recommendation:
-- use a narrow real-text corpus with clearer sentence-level variety
-- keep the same tiny model and training path first
-- use it as a transfer sanity check, not as a chatbot benchmark
-
----
-
-## Later experiment track
-
-### Architecture or tokenizer follow-up on real text
-
-Only do this after the better real-text data step.
-
-Possible directions:
-- tokenizer and preprocessing integration polish
-- a slightly larger real-text model at fixed corpus and budget
-- a cleaner real-text corpus curation pass
-- a small model-capacity follow-up on real text if the data improvement alone is not enough
-
----
-
-## Not the next experiment
-
-Do not prioritize these before the next real-text data step:
+Do not prioritize these next:
 - new architecture stages
-- another synthetic sweep unless a very specific question appears
-- chatbot-style evaluation
 - tokenizer persistence redesign
-- large benchmark framework creation
-- remote model distribution work
+- chatbot-style evaluation
+- remote data/model work
 - Lux training parity
+- broad experiment-framework work
 
-Those are important later, but they are not the next best way to learn from the current results.
+Those may matter later, but they are not the cleanest next lever from the current results.
