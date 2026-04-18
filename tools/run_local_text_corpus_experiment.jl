@@ -31,6 +31,7 @@ function run_local_text_experiment(
     experiment_name::AbstractString = LOCAL_TEXT_EXPERIMENT_NAME,
     purpose::AbstractString = "small real-text transfer sanity check, not chatbot benchmarking",
     corpus_source_label::AbstractString = "local_markdown_repo_docs",
+    docstring_source_files::Vector{String} = String[],
 )
     dataset_dir = joinpath(output_dir, "dataset")
     checkpoint_dir = joinpath(output_dir, "checkpoints")
@@ -56,6 +57,7 @@ function run_local_text_experiment(
     println("purpose: $(purpose)")
 
     corpus_entries = collect_corpus_entries(corpus_files)
+    append!(corpus_entries, collect_docstring_entries(docstring_source_files))
     split_entries = split_entries_deterministically(corpus_entries)
     split_texts = (
         training = [entry.text for entry in split_entries.training],
@@ -260,6 +262,19 @@ function collect_corpus_entries(relative_paths::Vector{String})::Vector{CorpusEn
     return entries
 end
 
+function collect_docstring_entries(relative_paths::Vector{String})::Vector{CorpusEntry}
+    entries = CorpusEntry[]
+    for relative_path in relative_paths
+        absolute_path = joinpath(pwd(), relative_path)
+        isfile(absolute_path) || throw(ArgumentError("docstring source file does not exist: $(absolute_path)"))
+        docstrings = julia_docstrings_to_paragraphs(read(absolute_path, String))
+        for (paragraph_index, paragraph) in enumerate(docstrings)
+            push!(entries, CorpusEntry(relative_path * "::docstring", paragraph_index, paragraph))
+        end
+    end
+    return entries
+end
+
 function markdown_to_paragraphs(markdown_text::AbstractString)::Vector{String}
     lines = split(markdown_text, '\n')
     paragraphs = String[]
@@ -287,6 +302,19 @@ function markdown_to_paragraphs(markdown_text::AbstractString)::Vector{String}
     return paragraphs
 end
 
+function julia_docstrings_to_paragraphs(source_text::AbstractString)::Vector{String}
+    matches = collect(eachmatch(r"\"\"\"(.*?)\"\"\""s, source_text))
+    paragraphs = String[]
+    for matched in matches
+        docstring_body = replace(matched.captures[1], '\r' => "")
+        for paragraph in split(docstring_body, r"\n\s*\n")
+            normalized = normalize_docstring_paragraph(paragraph)
+            isempty(normalized) || push!(paragraphs, normalized)
+        end
+    end
+    return paragraphs
+end
+
 function normalize_markdown_line(line::AbstractString)::String
     normalized = strip(line)
     isempty(normalized) && return ""
@@ -299,6 +327,19 @@ function normalize_markdown_line(line::AbstractString)::String
     normalized = replace(normalized, '`' => "")
     normalized = replace(normalized, r"\s+" => " ")
 
+    return strip(normalized)
+end
+
+function normalize_docstring_paragraph(paragraph::AbstractString)::String
+    normalized = strip(paragraph)
+    isempty(normalized) && return ""
+    startswith(normalized, "#") && return ""
+    startswith(normalized, "```") && return ""
+
+    normalized = replace(normalized, '`' => "")
+    normalized = replace(normalized, r"\s+" => " ")
+    word_count = length(split(normalized))
+    word_count >= 5 || return ""
     return strip(normalized)
 end
 
