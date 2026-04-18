@@ -57,3 +57,9 @@ Outputs:
 - `tokenizer.json`
 - `metrics.json`
 - `sample_outputs.txt`
+
+Observed outcome:
+- the pipeline worked end to end on real text
+- loss decreased across epochs and bundle reload/generation worked
+- model quality remained weak, with short repetitive or padded continuations
+- this run was enough to validate the real-text path, but not enough to demonstrate useful text quality

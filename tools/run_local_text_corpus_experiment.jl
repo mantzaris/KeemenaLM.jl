@@ -9,8 +9,8 @@ using Random
 include("run_benchmark_cfg_experiment.jl")
 
 const LOCAL_TEXT_DEFAULT_OUTPUT_DIR = joinpath(pwd(), "tmp", "local_text_corpus_experiment")
-const EXPERIMENT_NAME = "local_text_corpus_experiment"
-const CORPUS_FILES = [
+const LOCAL_TEXT_EXPERIMENT_NAME = "local_text_corpus_experiment"
+const SMALL_LOCAL_TEXT_CORPUS_FILES = [
     "README.md",
     "docs/src/index.md",
     "notes/repo_plan_short.md",
@@ -22,6 +22,16 @@ function main(args)
     length(args) <= 1 || error("usage: julia --project=tools/benchmark_cfg tools/run_local_text_corpus_experiment.jl [output_dir]")
 
     output_dir = length(args) == 1 ? abspath(args[1]) : LOCAL_TEXT_DEFAULT_OUTPUT_DIR
+    run_local_text_experiment(SMALL_LOCAL_TEXT_CORPUS_FILES, output_dir)
+end
+
+function run_local_text_experiment(
+    corpus_files::Vector{String},
+    output_dir::AbstractString;
+    experiment_name::AbstractString = LOCAL_TEXT_EXPERIMENT_NAME,
+    purpose::AbstractString = "small real-text transfer sanity check, not chatbot benchmarking",
+    corpus_source_label::AbstractString = "local_markdown_repo_docs",
+)
     dataset_dir = joinpath(output_dir, "dataset")
     checkpoint_dir = joinpath(output_dir, "checkpoints")
     bundle_dir = joinpath(output_dir, "bundle")
@@ -43,9 +53,9 @@ function main(args)
 
     println("== KeemenaLM local text corpus experiment ==")
     println("output_dir: $(output_dir)")
-    println("purpose: small real-text transfer sanity check, not chatbot benchmarking")
+    println("purpose: $(purpose)")
 
-    corpus_entries = collect_corpus_entries(CORPUS_FILES)
+    corpus_entries = collect_corpus_entries(corpus_files)
     split_entries = split_entries_deterministically(corpus_entries)
     split_texts = (
         training = [entry.text for entry in split_entries.training],
@@ -93,8 +103,8 @@ function main(args)
         optimizer = Flux.Descent(settings.learning_rate),
         backend = :flux,
         metadata = Dict(
-            "experiment" => EXPERIMENT_NAME,
-            "corpus_source" => "local_markdown_repo_docs",
+            "experiment" => experiment_name,
+            "corpus_source" => corpus_source_label,
             "tokenizer_path" => tokenizer_path,
         ),
     )
@@ -114,7 +124,7 @@ function main(args)
         train_loss = sum(epoch_losses) / length(epoch_losses)
         validation_loss = mean_loss(model, validation_batches)
         checkpoint_path = joinpath(checkpoint_dir, @sprintf("epoch_%02d_checkpoint.jld2", epoch))
-        save_checkpoint(checkpoint_path, trainer, model; experiment = EXPERIMENT_NAME, epoch = epoch)
+        save_checkpoint(checkpoint_path, trainer, model; experiment = experiment_name, epoch = epoch)
 
         push!(
             epoch_metrics,
@@ -142,7 +152,7 @@ function main(args)
     end
 
     final_checkpoint_path = joinpath(checkpoint_dir, "final_checkpoint.jld2")
-    save_checkpoint(final_checkpoint_path, trainer, model; experiment = EXPERIMENT_NAME, stage = "final")
+    save_checkpoint(final_checkpoint_path, trainer, model; experiment = experiment_name, stage = "final")
 
     bundle = Bundle(
         model_config = KeemenaLM.Core.model_config(model),
@@ -160,11 +170,11 @@ function main(args)
     write_samples(sample_path, samples)
 
     metrics = Dict(
-        "experiment" => EXPERIMENT_NAME,
-        "purpose" => "small real-text transfer sanity check only",
+        "experiment" => experiment_name,
+        "purpose" => purpose,
         "corpus" => Dict(
             "source_type" => "local_markdown_files",
-            "source_files" => CORPUS_FILES,
+            "source_files" => corpus_files,
             "corpus_metadata_file" => dataset_metadata_path,
             "training_file" => split_paths.training,
             "validation_file" => split_paths.validation,
@@ -227,6 +237,7 @@ function main(args)
     println("tokenizer: $(tokenizer_path)")
     println("metrics: $(metrics_path)")
     println("samples: $(sample_path)")
+    return metrics
 end
 
 Base.@kwdef struct CorpusEntry
@@ -342,7 +353,7 @@ end
 
 function write_corpus_metadata(path::AbstractString, corpus_entries, split_entries)
     metadata = Dict(
-        "source_files" => CORPUS_FILES,
+        "source_files" => sort!(unique([entry.source_file for entry in corpus_entries])),
         "total_paragraphs" => length(corpus_entries),
         "split_counts" => Dict(
             "training" => length(split_entries.training),
@@ -367,4 +378,6 @@ function split_text_stats(texts::Vector{String}, context_length::Int)::Dict{Stri
     )
 end
 
-main(ARGS)
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(ARGS)
+end

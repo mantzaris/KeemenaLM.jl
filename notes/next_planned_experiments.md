@@ -1,111 +1,93 @@
 # Next planned experiments
 
-This note records the next intended experiment sequence after the completed BenchmarkDataNLP CFG runs.
+This note records the next intended experiment sequence after the completed synthetic CFG phase and the first two local real-text sanity checks.
 
-Current completed benchmark work:
+Current completed experiment work:
 - first bounded CFG experiment
 - fixed-sentence-count CFG complexity sweep
 - fixed-complexity budget sweep at `complexity = 5`
+- fixed-complexity width sweep at `complexity = 5`
+- fixed-complexity depth sweep at `complexity = 5`
+- token-controlled CFG complexity sweep
+- first small local real-text sanity check
+- second larger local real-text sanity check
 
 Current interpretation:
 - the pipeline works end to end
 - the tiny Flux GPT-2 clearly learns low-complexity CFG structure
-- learning degrades as CFG complexity rises
-- at `complexity = 5`, more epochs help a little, but not enough to remove degradation
-- the current setup now looks more capacity-limited than pipeline-broken
+- learning degrades as CFG complexity rises, even after controlling training token volume
+- at `complexity = 5`, more epochs help a little, width helps more than depth, and the setup still looks capacity-limited
+- the real-text path also works end to end, but the two local markdown corpora are too small and repetitive to produce useful text quality
+- the next bottleneck is better real-text data, not more architecture churn
 
 ---
 
 ## Immediate next experiment
 
-### Model-size sweep at fixed complexity
+### Better local real-text corpus
 
 Purpose:
-- keep the degraded point from the earlier sweeps fixed at `complexity = 5`
-- keep dataset and training budget fixed
-- vary only one model-capacity axis
-- test whether the remaining degradation is mainly capacity-bound
+- keep the current training, checkpoint, bundle, and generation path stable
+- use a somewhat larger and cleaner local real-text corpus in the same general technical-writing style
+- test whether more natural-text volume and variety improve behavior more than the tiny markdown-only sanity-check corpora did
 
 Recommended control:
-- fix `complexity = 5`
-- fix `num_sentences = 4_000`
-- fix `epochs = 2`
-- fix `batch_size = 16`
-- fix `learning_rate = 0.01f0`
-- fix tokenizer approach
-- fix backend `:flux`
-
-Recommended sweep axis:
-- vary `embedding_size` only
-
-Recommended first values:
-- `embedding_size = 32`
-- `embedding_size = 64`
-- `embedding_size = 96`
-
-Keep these fixed to avoid mixing variables:
-- `num_layers = 2`
-- `num_heads = 2`
-- `ffn_hidden_size` scaled in the simplest consistent way for the chosen embedding size, or held fixed if you want a stricter width-only control
+- keep the current tiny model and training recipe fixed first
+- add more locally controlled prose before changing architecture again
+- prefer one coherent corpus extension over a mixed noisy grab bag
+- keep deterministic split creation and the same simple tokenizer path for the next run
 
 Primary outputs:
 - train, validation, and test loss
-- perplexity-style signal
-- final step count
-- sample output paths
-- token or example-count stats for interpretability
+- sample outputs after bundle reload
+- token and example-count stats
+- a direct comparison against the current small and larger local-text baselines
 
 Decision target:
-- if a modest size increase materially improves loss and samples, the next bottleneck is probably capacity
-- if a size increase barely helps, the next bottleneck is more likely data formulation, tokenizer limits, or training recipe limits
+- if a better local corpus materially improves results, the next bottleneck is still mostly data
+- if a better local corpus barely helps, the next bottleneck is more likely tokenizer quality, training recipe limits, or model capacity on natural text
 
 ---
 
 ## Second follow-up experiment
 
-### Architectural capacity sweep
+### Small external real-text dataset or better curated local corpus
 
-Only do this after the width sweep above.
+Only do this after the better local real-text corpus run above.
 
 Purpose:
-- if width helps, test whether depth helps further
+- move beyond repo docs and notes while still keeping the experiment small, explicit, and legally clear
 
 Recommendation:
-- keep `complexity = 5`
-- keep dataset and budget fixed
-- hold width fixed at the best result from the first size sweep
-- vary `num_layers` only
-
-Possible values:
-- `num_layers = 2`
-- `num_layers = 3`
-- `num_layers = 4`
-
-Do not mix width and depth in the same first follow-up sweep.
+- use a narrow real-text corpus with clearer sentence-level variety
+- keep the same tiny model and training path first
+- use it as a transfer sanity check, not as a chatbot benchmark
 
 ---
 
 ## Later experiment track
 
-### Cleaner complexity comparison
+### Architecture or tokenizer follow-up on real text
 
-The first complexity sweep was useful, but fixed sentence count allowed effective training volume to drift with complexity.
+Only do this after the better real-text data step.
 
-Later, run a cleaner complexity sweep with one of these controls:
-- fixed total training token stream length
-- fixed total number of LM examples
-
-That will answer the complexity question more cleanly than the first exploratory sweep.
+Possible directions:
+- tokenizer and preprocessing integration polish
+- a slightly larger real-text model at fixed corpus and budget
+- a cleaner real-text corpus curation pass
+- a small model-capacity follow-up on real text if the data improvement alone is not enough
 
 ---
 
 ## Not the next experiment
 
-Do not prioritize these before the model-size sweep:
+Do not prioritize these before the next real-text data step:
+- new architecture stages
+- another synthetic sweep unless a very specific question appears
 - chatbot-style evaluation
 - tokenizer persistence redesign
 - large benchmark framework creation
 - remote model distribution work
 - Lux training parity
 
-Those are important later, but they are not the next best way to learn from the current benchmark results.
+Those are important later, but they are not the next best way to learn from the current results.

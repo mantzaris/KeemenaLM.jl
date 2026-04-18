@@ -21,6 +21,22 @@ Not yet supported:
 - tokenizer/preprocessing persistence inside bundles
 - remote official model hosting or download integration
 
+## Current Progress
+
+The original staged proof-of-concept roadmap is complete through the planned v0.1 scope.
+
+What has been demonstrated:
+- the synthetic CFG benchmark phase ran end to end and is complete enough for this proof-of-concept stage
+- controlled sweeps showed that CFG complexity hurts learning materially
+- at the degraded synthetic point, extra epochs help only a little
+- width helped more than depth under the fixed synthetic recipe
+- two local real-text sanity checks also ran end to end using the same checkpoint, bundle, and reload path
+
+Current interpretation:
+- the package pipeline is working
+- current model quality on the tiny local real-text corpora is still weak
+- the next bottleneck is data scale and variety rather than core package mechanics
+
 ## Supported Workflows
 
 Training and export with Flux:
@@ -48,3 +64,4 @@ julia --project=. examples/chat_repl.jl tiny-demo
 - Official model keys such as `tiny-demo` are supported through local artifact registration in this repo setup. They are not a fresh-user remote download path yet.
 - Tokenizer and preprocessing objects are still supplied explicitly by the caller.
 - Lux currently supports instantiate, forward pass, shared bundle weights, and CPU generation only.
+- The next recommended work is better real-text data experiments with the current stable pipeline, not more architecture churn first.
