@@ -1,0 +1,20 @@
+name = "KeemenaLMBenchmarkCFGExperiment"
+uuid = "ab6b8e6a-b86b-4cad-9dae-b465df67e58d"
+version = "0.1.0"
+
+[deps]
+BenchmarkDataNLP = "473ed2bd-0a1f-44e6-8c06-93ed739d6613"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+KeemenaLM = "2fc6a9bc-fb8b-4174-8db3-ef58dc8a472f"
+
+[sources]
+BenchmarkDataNLP = {url = "https://github.com/mantzaris/BenchmarkDataNLP.jl.git", rev = "main"}
+KeemenaLM = {path = "../.."}
+
+[compat]
+BenchmarkDataNLP = "1.0.2"
+Flux = "0.16"
+JSON3 = "1"
+KeemenaLM = "0.1.0"
+julia = "1.10"
