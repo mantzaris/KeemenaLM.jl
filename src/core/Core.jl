@@ -21,6 +21,7 @@ export
     generate,
     ChatSession,
     chat!,
+    chat_repl,
     BUNDLE_SCHEMA_VERSION,
     BundleManifest,
     Bundle,

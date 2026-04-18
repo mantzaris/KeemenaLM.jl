@@ -21,6 +21,7 @@ export
     generate,
     ChatSession,
     chat!,
+    chat_repl,
     instantiate
 
 function instantiate(config_or_bundle; backend::Symbol = :flux, keyword_arguments...)

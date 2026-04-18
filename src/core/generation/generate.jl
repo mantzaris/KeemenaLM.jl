@@ -8,6 +8,40 @@ function generate(
     prompt_text::AbstractString;
     generation_config::GenerationConfig = GenerationConfig(),
 )::String
+    prompt, generated_completion = generate_prompt_completion(
+        model,
+        tokenizer,
+        preprocessing,
+        prompt_text;
+        generation_config = generation_config,
+    )
+    return prompt * generated_completion
+end
+
+function generate_completion(
+    model::AbstractCausalLM,
+    tokenizer,
+    preprocessing,
+    prompt_text::AbstractString;
+    generation_config::GenerationConfig = GenerationConfig(),
+)::String
+    _, generated_completion = generate_prompt_completion(
+        model,
+        tokenizer,
+        preprocessing,
+        prompt_text;
+        generation_config = generation_config,
+    )
+    return generated_completion
+end
+
+function generate_prompt_completion(
+    model::AbstractCausalLM,
+    tokenizer,
+    preprocessing,
+    prompt_text::AbstractString;
+    generation_config::GenerationConfig = GenerationConfig(),
+)
     generation_config.max_new_tokens >= 0 || throw(ArgumentError("max_new_tokens must be >= 0"))
 
     prompt = preprocess_text(preprocessing, prompt_text)
@@ -47,5 +81,5 @@ function generate(
 
     generated_text = tokenizer_decode(tokenizer, generated_token_ids)
     trimmed_generated_text = trim_stop_sequences(generated_text, generation_config)
-    return prompt * trimmed_generated_text
+    return prompt, trimmed_generated_text
 end
