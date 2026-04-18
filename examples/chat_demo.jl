@@ -19,7 +19,14 @@ KeemenaLM.Core.tokenizer_encode(tokenizer::DemoCharTokenizer, text::AbstractStri
 KeemenaLM.Core.tokenizer_decode(tokenizer::DemoCharTokenizer, token_ids::AbstractVector{<:Integer}) =
     String([get(tokenizer.id_to_token, token_id, '?') for token_id in token_ids])
 
-length(ARGS) == 1 || error("usage: julia --project=. examples/chat_demo.jl <bundle_dir>")
+length(ARGS) == 1 || error("usage: julia --project=. examples/chat_demo.jl <bundle_dir_or_model_key>")
+
+println("Available official models:")
+for model_info in available_models()
+    println("  ", model_info.key, " - ", model_info.description)
+    println("    install note: ", model_info.install_note)
+    println("    tokenizer note: ", model_info.tokenizer_note)
+end
 
 bundle = load_bundle(ARGS[1])
 model = instantiate(bundle; backend = :flux)

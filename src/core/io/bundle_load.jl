@@ -1,8 +1,8 @@
 """
 Load a model bundle from a directory.
 """
-function load_bundle(source)::Bundle
-    directory_path = resolve_bundle(source)
+function load_bundle(source; artifacts_toml::AbstractString = default_artifacts_toml())::Bundle
+    directory_path = resolve_bundle(source; artifacts_toml = artifacts_toml)
     bundle_manifest_path = joinpath(directory_path, "bundle.json")
 
     manifest = open(bundle_manifest_path, "r") do io

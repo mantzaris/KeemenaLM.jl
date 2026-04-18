@@ -180,6 +180,7 @@ function cuda_cu(data)
 end
 
 function is_cuda_array(reference)
+    reference isa Array && return false
     cuda = cuda_module()
     cuda === nothing && return false
     return reference isa getproperty(cuda, :CuArray)
