@@ -27,6 +27,7 @@ Base.@kwdef struct ExperimentSettings
     ffn_hidden_size::Int = 128
     prompt_prefix_characters::Int = 12
     sample_generation_tokens::Int = 32
+    train_token_stream_limit::Union{Nothing, Int} = nothing
 end
 
 struct ExperimentCharTokenizer
@@ -75,9 +76,25 @@ function run_experiment(
     tokenizer = build_tokenizer(split_texts)
     save_tokenizer(tokenizer_path, tokenizer)
 
-    train_batches = build_lm_batches(split_texts.training, tokenizer; context_length = settings.context_length, batch_size = settings.batch_size)
-    validation_batches = build_lm_batches(split_texts.validation, tokenizer; context_length = settings.context_length, batch_size = settings.batch_size)
-    test_batches = build_lm_batches(split_texts.testing, tokenizer; context_length = settings.context_length, batch_size = settings.batch_size)
+    train_batches, train_stats = build_lm_batches(
+        split_texts.training,
+        tokenizer;
+        context_length = settings.context_length,
+        batch_size = settings.batch_size,
+        max_token_stream_length = settings.train_token_stream_limit,
+    )
+    validation_batches, _ = build_lm_batches(
+        split_texts.validation,
+        tokenizer;
+        context_length = settings.context_length,
+        batch_size = settings.batch_size,
+    )
+    test_batches, _ = build_lm_batches(
+        split_texts.testing,
+        tokenizer;
+        context_length = settings.context_length,
+        batch_size = settings.batch_size,
+    )
 
     config = GPT2Config(
         vocab_size = length(tokenizer.alphabet),
@@ -191,6 +208,9 @@ function run_experiment(
             "train_batches" => length(train_batches),
             "validation_batches" => length(validation_batches),
             "test_batches" => length(test_batches),
+            "train_token_stream_length" => train_stats.token_stream_length,
+            "train_example_count" => train_stats.example_count,
+            "train_token_stream_limit" => settings.train_token_stream_limit,
             "final_step" => trainer.step,
             "final_epoch" => trainer.epoch,
             "initial_validation_loss" => initial_validation_loss,
@@ -275,6 +295,7 @@ function merge_settings(
     ffn_hidden_size::Int = settings.ffn_hidden_size,
     prompt_prefix_characters::Int = settings.prompt_prefix_characters,
     sample_generation_tokens::Int = settings.sample_generation_tokens,
+    train_token_stream_limit::Union{Nothing, Int} = settings.train_token_stream_limit,
 )
     return ExperimentSettings(
         dataset_seed = dataset_seed,
@@ -293,6 +314,7 @@ function merge_settings(
         ffn_hidden_size = ffn_hidden_size,
         prompt_prefix_characters = prompt_prefix_characters,
         sample_generation_tokens = sample_generation_tokens,
+        train_token_stream_limit = train_token_stream_limit,
     )
 end
 
@@ -367,9 +389,17 @@ function build_lm_batches(
     tokenizer::ExperimentCharTokenizer;
     context_length::Int,
     batch_size::Int,
+    max_token_stream_length::Union{Nothing, Int} = nothing,
 )
     corpus = join(texts, "\n")
     token_ids = KeemenaLM.Core.tokenizer_encode(tokenizer, corpus)
+    if max_token_stream_length !== nothing
+        max_token_stream_length > 1 ||
+            throw(ArgumentError("max_token_stream_length must be > 1 when provided"))
+        length(token_ids) >= max_token_stream_length ||
+            throw(ArgumentError("token stream length $(length(token_ids)) is smaller than requested limit $(max_token_stream_length)"))
+        token_ids = token_ids[1:max_token_stream_length]
+    end
     length(token_ids) > context_length ||
         throw(ArgumentError("dataset split is too small for context_length=$(context_length)"))
 
@@ -402,7 +432,11 @@ function build_lm_batches(
         push!(batches, (input_batch, target_batch))
     end
 
-    return batches
+    stats = (
+        token_stream_length = length(token_ids),
+        example_count = example_count,
+    )
+    return batches, stats
 end
 
 function mean_loss(model, batches)::Float64
