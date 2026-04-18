@@ -58,6 +58,9 @@ Recommended priority order for future work:
 3. Lux training parity
 4. documentation and release packaging improvements as needed
 
+Immediate experiment continuation is documented separately in:
+- `next_planned_experiments.md`
+
 ---
 
 ## Future stages
