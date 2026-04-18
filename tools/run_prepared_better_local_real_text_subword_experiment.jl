@@ -1,0 +1,506 @@
+#!/usr/bin/env julia
+
+using Flux
+using JSON3
+using KeemenaLM
+using KeemenaSubwords
+using Printf
+using Random
+
+const PREPARED_CORPUS_INPUT_DIR = joinpath(pwd(), "tmp", "better_local_real_text_corpus_prepared", "dataset")
+const SUBWORD_EXPERIMENT_OUTPUT_DIR = joinpath(pwd(), "tmp", "prepared_better_local_real_text_subword_experiment")
+const SUBWORD_EXPERIMENT_NAME = "prepared_better_local_real_text_subword_experiment"
+const SUBWORD_STEP_MATCHED_OUTPUT_DIR = joinpath(pwd(), "tmp", "prepared_better_local_real_text_subword_experiment_step_matched")
+
+Base.@kwdef struct SubwordExperimentSettings
+    dataset_seed::Int = 20260417
+    model_seed::Int = 20260418
+    generation_seed::Int = 20260419
+    context_length::Int = 48
+    batch_size::Int = 16
+    epochs::Int = 2
+    learning_rate::Float32 = 0.01f0
+    num_layers::Int = 2
+    num_heads::Int = 2
+    embedding_size::Int = 64
+    ffn_hidden_size::Int = 128
+    prompt_prefix_characters::Int = 24
+    sample_generation_tokens::Int = 32
+    tokenizer_trainer::Symbol = :hf_gpt2_bytebpe
+    tokenizer_vocab_size::Int = 384
+    tokenizer_min_frequency::Int = 2
+    tokenizer_model_name::String = "prepared_better_local_gpt2_bytebpe"
+    target_final_step::Union{Nothing, Int} = nothing
+end
+
+KeemenaLM.Core.tokenizer_encode(tokenizer::KeemenaSubwords.AbstractSubwordTokenizer, text::AbstractString) =
+    KeemenaSubwords.encode(tokenizer, text; add_special_tokens=false)
+
+KeemenaLM.Core.tokenizer_decode(
+    tokenizer::KeemenaSubwords.AbstractSubwordTokenizer,
+    token_ids::AbstractVector{<:Integer},
+) = KeemenaSubwords.decode(tokenizer, Int[Int(token_id) for token_id in token_ids])
+
+function main(args)
+    dataset_dir = PREPARED_CORPUS_INPUT_DIR
+    output_dir = SUBWORD_EXPERIMENT_OUTPUT_DIR
+    settings = SubwordExperimentSettings()
+
+    argument_index = 1
+    while argument_index <= length(args)
+        argument = args[argument_index]
+        if argument == "--target-final-step"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --target-final-step")
+            target_final_step = parse(Int, args[argument_index])
+            output_dir == SUBWORD_EXPERIMENT_OUTPUT_DIR && (output_dir = SUBWORD_STEP_MATCHED_OUTPUT_DIR)
+            settings = SubwordExperimentSettings(;
+                dataset_seed = settings.dataset_seed,
+                model_seed = settings.model_seed,
+                generation_seed = settings.generation_seed,
+                context_length = settings.context_length,
+                batch_size = settings.batch_size,
+                epochs = settings.epochs,
+                learning_rate = settings.learning_rate,
+                num_layers = settings.num_layers,
+                num_heads = settings.num_heads,
+                embedding_size = settings.embedding_size,
+                ffn_hidden_size = settings.ffn_hidden_size,
+                prompt_prefix_characters = settings.prompt_prefix_characters,
+                sample_generation_tokens = settings.sample_generation_tokens,
+                tokenizer_trainer = settings.tokenizer_trainer,
+                tokenizer_vocab_size = settings.tokenizer_vocab_size,
+                tokenizer_min_frequency = settings.tokenizer_min_frequency,
+                tokenizer_model_name = settings.tokenizer_model_name,
+                target_final_step = target_final_step,
+            )
+        elseif argument == "--epochs"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --epochs")
+            settings = SubwordExperimentSettings(;
+                dataset_seed = settings.dataset_seed,
+                model_seed = settings.model_seed,
+                generation_seed = settings.generation_seed,
+                context_length = settings.context_length,
+                batch_size = settings.batch_size,
+                epochs = parse(Int, args[argument_index]),
+                learning_rate = settings.learning_rate,
+                num_layers = settings.num_layers,
+                num_heads = settings.num_heads,
+                embedding_size = settings.embedding_size,
+                ffn_hidden_size = settings.ffn_hidden_size,
+                prompt_prefix_characters = settings.prompt_prefix_characters,
+                sample_generation_tokens = settings.sample_generation_tokens,
+                tokenizer_trainer = settings.tokenizer_trainer,
+                tokenizer_vocab_size = settings.tokenizer_vocab_size,
+                tokenizer_min_frequency = settings.tokenizer_min_frequency,
+                tokenizer_model_name = settings.tokenizer_model_name,
+                target_final_step = settings.target_final_step,
+            )
+        elseif argument == "--output-dir"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --output-dir")
+            output_dir = abspath(args[argument_index])
+        elseif argument == "--dataset-dir"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --dataset-dir")
+            dataset_dir = abspath(args[argument_index])
+        else
+            error("usage: julia --project=tools/subword_real_text tools/run_prepared_better_local_real_text_subword_experiment.jl [--dataset-dir DIR] [--output-dir DIR] [--epochs N] [--target-final-step N]")
+        end
+        argument_index += 1
+    end
+
+    run_prepared_better_local_real_text_subword_experiment(dataset_dir, output_dir; settings = settings)
+end
+
+function run_prepared_better_local_real_text_subword_experiment(
+    dataset_dir::AbstractString,
+    output_dir::AbstractString;
+    settings::SubwordExperimentSettings = SubwordExperimentSettings(),
+)
+    training_path = joinpath(dataset_dir, "training.txt")
+    validation_path = joinpath(dataset_dir, "validation.txt")
+    testing_path = joinpath(dataset_dir, "testing.txt")
+    metadata_path = joinpath(dataset_dir, "corpus_metadata.json")
+
+    isfile(training_path) || throw(ArgumentError("prepared training split does not exist: $(training_path)"))
+    isfile(validation_path) || throw(ArgumentError("prepared validation split does not exist: $(validation_path)"))
+    isfile(testing_path) || throw(ArgumentError("prepared testing split does not exist: $(testing_path)"))
+    isfile(metadata_path) || throw(ArgumentError("prepared corpus metadata does not exist: $(metadata_path)"))
+
+    output_dir = abspath(output_dir)
+    checkpoint_dir = joinpath(output_dir, "checkpoints")
+    bundle_dir = joinpath(output_dir, "bundle")
+    tokenizer_bundle_dir = joinpath(output_dir, "tokenizer_bundle")
+    metrics_path = joinpath(output_dir, "metrics.json")
+    sample_path = joinpath(output_dir, "sample_outputs.txt")
+
+    mkpath(output_dir)
+    mkpath(checkpoint_dir)
+
+    split_texts = load_prepared_split_texts(dataset_dir)
+    corpus_metadata = JSON3.read(read(metadata_path, String))
+
+    Random.seed!(settings.dataset_seed)
+    tokenizer_training_output = KeemenaSubwords.quick_train_bundle(
+        settings.tokenizer_trainer,
+        split_texts.training;
+        bundle_directory = tokenizer_bundle_dir,
+        overwrite = true,
+        export_format = :hf_tokenizer_json,
+        vocab_size = settings.tokenizer_vocab_size,
+        min_frequency = settings.tokenizer_min_frequency,
+        model_name = settings.tokenizer_model_name,
+        sanity_text = "tokenizer quality matters on local technical prose",
+    )
+    tokenizer = tokenizer_training_output.tokenizer
+    tokenizer_json_path = joinpath(tokenizer_bundle_dir, "tokenizer.json")
+
+    train_batches, train_stats = build_subword_lm_batches(
+        split_texts.training,
+        tokenizer;
+        context_length = settings.context_length,
+        batch_size = settings.batch_size,
+    )
+    validation_batches, validation_stats = build_subword_lm_batches(
+        split_texts.validation,
+        tokenizer;
+        context_length = settings.context_length,
+        batch_size = settings.batch_size,
+    )
+    test_batches, test_stats = build_subword_lm_batches(
+        split_texts.testing,
+        tokenizer;
+        context_length = settings.context_length,
+        batch_size = settings.batch_size,
+    )
+
+    config = GPT2Config(
+        vocab_size = KeemenaSubwords.vocab_size(tokenizer),
+        context_length = settings.context_length,
+        num_layers = settings.num_layers,
+        num_heads = settings.num_heads,
+        embedding_size = settings.embedding_size,
+        ffn_hidden_size = settings.ffn_hidden_size,
+    )
+
+    Random.seed!(settings.model_seed)
+    model = instantiate(config; backend = :flux, seed = settings.model_seed)
+    trainer = KeemenaLM.Core.Trainer(
+        model;
+        optimizer = Flux.Descent(settings.learning_rate),
+        backend = :flux,
+        metadata = Dict(
+            "experiment" => SUBWORD_EXPERIMENT_NAME,
+            "corpus_source" => "prepared_better_local_real_text_corpus_v1",
+            "tokenizer_bundle_dir" => tokenizer_bundle_dir,
+            "prepared_corpus_metadata_path" => metadata_path,
+        ),
+    )
+
+    initial_validation_loss = mean_loss(model, validation_batches)
+    println("== KeemenaLM prepared better local real-text subword experiment ==")
+    println("prepared_dataset_dir: $(dataset_dir)")
+    println("output_dir: $(output_dir)")
+    println("tokenizer_bundle_dir: $(tokenizer_bundle_dir)")
+    println(@sprintf("initial validation loss: %.4f", initial_validation_loss))
+
+    epoch_metrics = Dict{String, Any}[]
+    for epoch in 1:settings.epochs
+        epoch_losses = Float64[]
+        for (input_batch, target_batch) in train_batches
+            step_result = KeemenaLM.Core.train_step!(trainer, input_batch, target_batch)
+            push!(epoch_losses, step_result.loss)
+            if settings.target_final_step !== nothing && trainer.step >= settings.target_final_step
+                break
+            end
+        end
+
+        isempty(epoch_losses) && break
+        trainer.epoch = epoch
+        train_loss = sum(epoch_losses) / length(epoch_losses)
+        validation_loss = mean_loss(model, validation_batches)
+        checkpoint_path = joinpath(checkpoint_dir, @sprintf("epoch_%02d_checkpoint.jld2", epoch))
+        save_checkpoint(checkpoint_path, trainer, model; experiment = SUBWORD_EXPERIMENT_NAME, epoch = epoch)
+
+        push!(
+            epoch_metrics,
+            Dict(
+                "epoch" => epoch,
+                "step" => trainer.step,
+                "train_loss" => train_loss,
+                "train_perplexity" => exp(train_loss),
+                "validation_loss" => validation_loss,
+                "validation_perplexity" => exp(validation_loss),
+                "checkpoint_path" => checkpoint_path,
+            ),
+        )
+
+        println(
+            @sprintf(
+                "epoch %d/%d  train_loss=%.4f  validation_loss=%.4f  checkpoint=%s",
+                epoch,
+                settings.epochs,
+                train_loss,
+                validation_loss,
+                checkpoint_path,
+            ),
+        )
+
+        if settings.target_final_step !== nothing && trainer.step >= settings.target_final_step
+            break
+        end
+    end
+
+    final_checkpoint_path = joinpath(checkpoint_dir, "final_checkpoint.jld2")
+    save_checkpoint(final_checkpoint_path, trainer, model; experiment = SUBWORD_EXPERIMENT_NAME, stage = "final")
+
+    bundle = Bundle(
+        model_config = KeemenaLM.Core.model_config(model),
+        weights = KeemenaLM.Core.extract_weights(model),
+    )
+    save_bundle(bundle_dir, bundle)
+
+    reloaded_bundle = load_bundle(bundle_dir)
+    reloaded_model = instantiate(reloaded_bundle; backend = :flux)
+    reloaded_tokenizer = KeemenaSubwords.load_training_bundle(tokenizer_bundle_dir)
+
+    test_loss = mean_loss(reloaded_model, test_batches)
+    prompts = sample_prompts(split_texts.testing; count = 3, prefix_characters = settings.prompt_prefix_characters)
+    samples = generate_samples(
+        reloaded_model,
+        reloaded_tokenizer,
+        prompts;
+        generation_seed = settings.generation_seed,
+        max_new_tokens = settings.sample_generation_tokens,
+    )
+    write_samples(sample_path, samples)
+
+    metrics = Dict(
+        "experiment" => SUBWORD_EXPERIMENT_NAME,
+        "purpose" => "first prepared-corpus subword-tokenizer comparison, not chatbot benchmarking",
+        "corpus" => Dict(
+            "source_type" => "prepared_local_curated_markdown_docs",
+            "prepared_dataset_dir" => dataset_dir,
+            "corpus_metadata_file" => metadata_path,
+            "training_file" => training_path,
+            "validation_file" => validation_path,
+            "testing_file" => testing_path,
+            "split_policy" => String(corpus_metadata["split_policy"]),
+            "split_method" => corpus_metadata["split_method"],
+            "corpus_name" => String(corpus_metadata["corpus_name"]),
+        ),
+        "tokenizer" => Dict(
+            "package" => "KeemenaSubwords.jl",
+            "trainer" => String(settings.tokenizer_trainer),
+            "vocab_size_requested" => settings.tokenizer_vocab_size,
+            "vocab_size_actual" => KeemenaSubwords.vocab_size(tokenizer),
+            "min_frequency" => settings.tokenizer_min_frequency,
+            "model_name" => settings.tokenizer_model_name,
+            "training_summary" => Dict(
+                "trainer" => String(tokenizer_training_output.training_summary.trainer),
+                "tokenizer_type" => tokenizer_training_output.training_summary.tokenizer_type,
+                "config_type" => tokenizer_training_output.training_summary.config_type,
+                "model_name" => tokenizer_training_output.training_summary.model_name,
+                "version" => tokenizer_training_output.training_summary.version,
+                "vocab_size" => tokenizer_training_output.training_summary.vocab_size,
+            ),
+            "bundle_directory" => tokenizer_bundle_dir,
+            "bundle_files" => tokenizer_training_output.bundle_files,
+            "tokenizer_json_path" => tokenizer_json_path,
+            "sanity_encoded_ids" => tokenizer_training_output.sanity_encoded_ids,
+            "sanity_decoded_text" => tokenizer_training_output.sanity_decoded_text,
+            "bundle_persistence_note" => "tokenizer bundle is saved separately; KeemenaLM model bundles still do not persist tokenizer payloads",
+        ),
+        "model" => Dict(
+            "backend" => "flux",
+            "vocab_size" => config.vocab_size,
+            "context_length" => config.context_length,
+            "num_layers" => config.num_layers,
+            "num_heads" => config.num_heads,
+            "embedding_size" => config.embedding_size,
+            "ffn_hidden_size" => config.ffn_hidden_size,
+            "model_seed" => settings.model_seed,
+        ),
+        "training" => Dict(
+            "batch_size" => settings.batch_size,
+            "epochs" => settings.epochs,
+            "target_final_step" => settings.target_final_step,
+            "learning_rate" => settings.learning_rate,
+            "train_batches" => length(train_batches),
+            "validation_batches" => length(validation_batches),
+            "test_batches" => length(test_batches),
+            "train_token_stream_length" => train_stats.token_stream_length,
+            "train_example_count" => train_stats.example_count,
+            "validation_token_stream_length" => validation_stats.token_stream_length,
+            "validation_example_count" => validation_stats.example_count,
+            "test_token_stream_length" => test_stats.token_stream_length,
+            "test_example_count" => test_stats.example_count,
+            "final_step" => trainer.step,
+            "final_epoch" => trainer.epoch,
+            "initial_validation_loss" => initial_validation_loss,
+            "test_loss" => test_loss,
+            "test_perplexity" => exp(test_loss),
+        ),
+        "artifacts" => Dict(
+            "tokenizer_bundle_dir" => tokenizer_bundle_dir,
+            "final_checkpoint" => final_checkpoint_path,
+            "bundle_dir" => bundle_dir,
+            "sample_outputs_path" => sample_path,
+        ),
+        "epoch_metrics" => epoch_metrics,
+        "split_stats" => Dict(
+            "training" => split_text_stats(split_texts.training, settings.context_length, tokenizer),
+            "validation" => split_text_stats(split_texts.validation, settings.context_length, tokenizer),
+            "testing" => split_text_stats(split_texts.testing, settings.context_length, tokenizer),
+        ),
+        "samples" => samples,
+    )
+
+    open(metrics_path, "w") do io
+        JSON3.write(io, metrics)
+    end
+
+    println(@sprintf("final test loss: %.4f", test_loss))
+    println("tokenizer bundle: $(tokenizer_bundle_dir)")
+    println("bundle export: $(bundle_dir)")
+    println("checkpoint: $(final_checkpoint_path)")
+    println("metrics: $(metrics_path)")
+    println("samples: $(sample_path)")
+    return metrics
+end
+
+function load_prepared_split_texts(dataset_dir::AbstractString)
+    return (
+        training = read_prepared_paragraphs(joinpath(dataset_dir, "training.txt")),
+        validation = read_prepared_paragraphs(joinpath(dataset_dir, "validation.txt")),
+        testing = read_prepared_paragraphs(joinpath(dataset_dir, "testing.txt")),
+    )
+end
+
+function read_prepared_paragraphs(path::AbstractString)::Vector{String}
+    contents = read(path, String)
+    paragraphs = [strip(paragraph) for paragraph in split(contents, r"\n\s*\n")]
+    paragraphs = filter(!isempty, paragraphs)
+    isempty(paragraphs) && throw(ArgumentError("prepared split is empty: $(path)"))
+    return paragraphs
+end
+
+function build_subword_lm_batches(
+    texts::Vector{String},
+    tokenizer::KeemenaSubwords.AbstractSubwordTokenizer;
+    context_length::Int,
+    batch_size::Int,
+)
+    corpus = join(texts, "\n")
+    token_ids = KeemenaSubwords.encode(tokenizer, corpus; add_special_tokens=false)
+    length(token_ids) > context_length ||
+        throw(ArgumentError("dataset split is too small for context_length=$(context_length)"))
+
+    example_count = fld(length(token_ids) - 1, context_length)
+    example_count > 0 || throw(ArgumentError("dataset split did not yield any LM examples"))
+
+    inputs = Vector{Vector{Int32}}(undef, example_count)
+    targets = Vector{Vector{Int32}}(undef, example_count)
+
+    for example_index in 1:example_count
+        offset = (example_index - 1) * context_length
+        input_slice = token_ids[(offset + 1):(offset + context_length)]
+        target_slice = token_ids[(offset + 2):(offset + context_length + 1)]
+        inputs[example_index] = Int32.(input_slice)
+        targets[example_index] = Int32.(target_slice)
+    end
+
+    batches = Tuple{Matrix{Int32}, Matrix{Int32}}[]
+    for batch_start in 1:batch_size:example_count
+        batch_end = min(batch_start + batch_size - 1, example_count)
+        actual_batch_size = batch_end - batch_start + 1
+        input_batch = Matrix{Int32}(undef, context_length, actual_batch_size)
+        target_batch = Matrix{Int32}(undef, context_length, actual_batch_size)
+
+        for (column_index, example_index) in enumerate(batch_start:batch_end)
+            input_batch[:, column_index] = inputs[example_index]
+            target_batch[:, column_index] = targets[example_index]
+        end
+
+        push!(batches, (input_batch, target_batch))
+    end
+
+    stats = (
+        token_stream_length = length(token_ids),
+        example_count = example_count,
+    )
+    return batches, stats
+end
+
+function mean_loss(model, batches)::Float64
+    total_loss = 0.0
+    for (input_batch, target_batch) in batches
+        logits, _ = KeemenaLM.Core.lm_forward(model, input_batch; cache = nothing, is_training = false)
+        total_loss += Float64(KeemenaLM.Core.causal_lm_cross_entropy(logits, target_batch))
+    end
+    return total_loss / length(batches)
+end
+
+function sample_prompts(texts::Vector{String}; count::Int, prefix_characters::Int)
+    prompts = String[]
+    for text in texts
+        isempty(strip(text)) && continue
+        push!(prompts, first(text, min(prefix_characters, length(text))))
+        length(prompts) == count && break
+    end
+    isempty(prompts) && throw(ArgumentError("unable to derive non-empty prompts from the test split"))
+    return prompts
+end
+
+function generate_samples(
+    model,
+    tokenizer::KeemenaSubwords.AbstractSubwordTokenizer,
+    prompts::Vector{String};
+    generation_seed::Int,
+    max_new_tokens::Int,
+)
+    generation_config = GenerationConfig(
+        max_new_tokens = max_new_tokens,
+        temperature = 0.0,
+        seed = generation_seed,
+    )
+
+    return [
+        Dict(
+            "prompt" => prompt,
+            "output" => generate(model, tokenizer, nothing, prompt; generation_config = generation_config),
+        ) for prompt in prompts
+    ]
+end
+
+function write_samples(path::AbstractString, samples)
+    open(path, "w") do io
+        for sample in samples
+            println(io, "prompt> ", sample["prompt"])
+            println(io, "output> ", sample["output"])
+            println(io)
+        end
+    end
+    return path
+end
+
+function split_text_stats(
+    texts::Vector{String},
+    context_length::Int,
+    tokenizer::KeemenaSubwords.AbstractSubwordTokenizer,
+)::Dict{String, Any}
+    token_stream_length = length(KeemenaSubwords.encode(tokenizer, join(texts, "\n"); add_special_tokens=false))
+    example_count = fld(max(token_stream_length - 1, 0), context_length)
+    return Dict(
+        "paragraph_count" => length(texts),
+        "token_stream_length" => token_stream_length,
+        "example_count" => example_count,
+        "mean_characters_per_paragraph" => sum(length, texts) / length(texts),
+    )
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(ARGS)
+end
