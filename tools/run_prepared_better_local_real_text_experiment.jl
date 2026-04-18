@@ -11,6 +11,7 @@ include("run_benchmark_cfg_experiment.jl")
 const PREPARED_CORPUS_INPUT_DIR = joinpath(pwd(), "tmp", "better_local_real_text_corpus_prepared", "dataset")
 const PREPARED_CORPUS_OUTPUT_DIR = joinpath(pwd(), "tmp", "prepared_better_local_real_text_experiment")
 const PREPARED_CORPUS_EXPERIMENT_NAME = "prepared_better_local_real_text_experiment"
+const PREPARED_CORPUS_EXPERIMENT_PURPOSE = "first training run on the prepared better local real-text corpus, not chatbot benchmarking"
 
 function main(args)
     length(args) <= 2 || error("usage: julia --project=tools/benchmark_cfg tools/run_prepared_better_local_real_text_experiment.jl [prepared_dataset_dir] [output_dir]")
@@ -19,7 +20,18 @@ function main(args)
     run_prepared_better_local_real_text_experiment(dataset_dir, output_dir)
 end
 
-function run_prepared_better_local_real_text_experiment(dataset_dir::AbstractString, output_dir::AbstractString)
+function run_prepared_better_local_real_text_experiment(
+    dataset_dir::AbstractString,
+    output_dir::AbstractString;
+    settings::ExperimentSettings = merge_settings(
+        ExperimentSettings();
+        complexity = 0,
+        num_sentences = 0,
+        prompt_prefix_characters = 24,
+    ),
+    experiment_name::AbstractString = PREPARED_CORPUS_EXPERIMENT_NAME,
+    purpose::AbstractString = PREPARED_CORPUS_EXPERIMENT_PURPOSE,
+)
     training_path = joinpath(dataset_dir, "training.txt")
     validation_path = joinpath(dataset_dir, "validation.txt")
     testing_path = joinpath(dataset_dir, "testing.txt")
@@ -39,13 +51,6 @@ function run_prepared_better_local_real_text_experiment(dataset_dir::AbstractStr
 
     mkpath(output_dir)
     mkpath(checkpoint_dir)
-
-    settings = merge_settings(
-        ExperimentSettings();
-        complexity = 0,
-        num_sentences = 0,
-        prompt_prefix_characters = 24,
-    )
 
     split_texts = load_prepared_split_texts(dataset_dir)
     corpus_metadata = JSON3.read(read(metadata_path, String))
@@ -87,7 +92,7 @@ function run_prepared_better_local_real_text_experiment(dataset_dir::AbstractStr
         optimizer = Flux.Descent(settings.learning_rate),
         backend = :flux,
         metadata = Dict(
-            "experiment" => PREPARED_CORPUS_EXPERIMENT_NAME,
+            "experiment" => experiment_name,
             "corpus_source" => "prepared_better_local_real_text_corpus_v1",
             "tokenizer_path" => tokenizer_path,
             "prepared_corpus_metadata_path" => metadata_path,
@@ -112,7 +117,7 @@ function run_prepared_better_local_real_text_experiment(dataset_dir::AbstractStr
         train_loss = sum(epoch_losses) / length(epoch_losses)
         validation_loss = mean_loss(model, validation_batches)
         checkpoint_path = joinpath(checkpoint_dir, @sprintf("epoch_%02d_checkpoint.jld2", epoch))
-        save_checkpoint(checkpoint_path, trainer, model; experiment = PREPARED_CORPUS_EXPERIMENT_NAME, epoch = epoch)
+        save_checkpoint(checkpoint_path, trainer, model; experiment = experiment_name, epoch = epoch)
 
         push!(
             epoch_metrics,
@@ -140,7 +145,7 @@ function run_prepared_better_local_real_text_experiment(dataset_dir::AbstractStr
     end
 
     final_checkpoint_path = joinpath(checkpoint_dir, "final_checkpoint.jld2")
-    save_checkpoint(final_checkpoint_path, trainer, model; experiment = PREPARED_CORPUS_EXPERIMENT_NAME, stage = "final")
+    save_checkpoint(final_checkpoint_path, trainer, model; experiment = experiment_name, stage = "final")
 
     bundle = Bundle(
         model_config = KeemenaLM.Core.model_config(model),
@@ -158,8 +163,8 @@ function run_prepared_better_local_real_text_experiment(dataset_dir::AbstractStr
     write_samples(sample_path, samples)
 
     metrics = Dict(
-        "experiment" => PREPARED_CORPUS_EXPERIMENT_NAME,
-        "purpose" => "first training run on the prepared better local real-text corpus, not chatbot benchmarking",
+        "experiment" => experiment_name,
+        "purpose" => purpose,
         "corpus" => Dict(
             "source_type" => "prepared_local_curated_markdown_docs",
             "prepared_dataset_dir" => dataset_dir,
