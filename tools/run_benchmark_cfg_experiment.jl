@@ -8,7 +8,7 @@ using Printf
 using Random
 
 const DEFAULT_OUTPUT_DIR = joinpath(pwd(), "tmp", "benchmark_cfg_first_experiment")
-const EXPERIMENT_NAME = "benchmark_cfg_first_experiment"
+const DEFAULT_EXPERIMENT_NAME = "benchmark_cfg_first_experiment"
 
 Base.@kwdef struct ExperimentSettings
     dataset_seed::Int = 20260417
@@ -47,11 +47,13 @@ KeemenaLM.Core.tokenizer_encode(tokenizer::ExperimentCharTokenizer, text::Abstra
 KeemenaLM.Core.tokenizer_decode(tokenizer::ExperimentCharTokenizer, token_ids::AbstractVector{<:Integer}) =
     String([get(tokenizer.id_to_token, Int(token_id), '?') for token_id in token_ids])
 
-function main(args)
-    length(args) <= 1 || error("usage: julia --project=. tools/run_benchmark_cfg_experiment.jl [output_dir]")
-
-    settings = ExperimentSettings()
-    output_dir = length(args) == 1 ? abspath(args[1]) : DEFAULT_OUTPUT_DIR
+function run_experiment(
+    settings::ExperimentSettings,
+    output_dir::AbstractString;
+    experiment_name::AbstractString = DEFAULT_EXPERIMENT_NAME,
+    purpose::AbstractString = "pipeline validation, not chatbot-quality benchmarking",
+)
+    output_dir = abspath(output_dir)
     dataset_dir = joinpath(output_dir, "dataset")
     checkpoint_dir = joinpath(output_dir, "checkpoints")
     bundle_dir = joinpath(output_dir, "bundle")
@@ -66,7 +68,7 @@ function main(args)
 
     println("== KeemenaLM BenchmarkDataNLP CFG experiment ==")
     println("output_dir: $(output_dir)")
-    println("purpose: pipeline validation, not chatbot-quality benchmarking")
+    println("purpose: $(purpose)")
 
     dataset_paths = generate_cfg_dataset(settings, dataset_dir, dataset_base_filename)
     split_texts = load_split_texts(dataset_paths)
@@ -93,7 +95,7 @@ function main(args)
         optimizer = Flux.Descent(settings.learning_rate),
         backend = :flux,
         metadata = Dict(
-            "experiment" => EXPERIMENT_NAME,
+            "experiment" => experiment_name,
             "dataset_generator" => "BenchmarkDataNLP.generate_corpus_CFG",
             "tokenizer_path" => tokenizer_path,
         ),
@@ -114,7 +116,7 @@ function main(args)
         train_loss = sum(epoch_losses) / length(epoch_losses)
         validation_loss = mean_loss(model, validation_batches)
         checkpoint_path = joinpath(checkpoint_dir, @sprintf("epoch_%02d_checkpoint.jld2", epoch))
-        save_checkpoint(checkpoint_path, trainer, model; experiment = EXPERIMENT_NAME, epoch = epoch)
+        save_checkpoint(checkpoint_path, trainer, model; experiment = experiment_name, epoch = epoch)
 
         epoch_summary = Dict(
             "epoch" => epoch,
@@ -140,7 +142,7 @@ function main(args)
     end
 
     final_checkpoint_path = joinpath(checkpoint_dir, "final_checkpoint.jld2")
-    save_checkpoint(final_checkpoint_path, trainer, model; experiment = EXPERIMENT_NAME, stage = "final")
+    save_checkpoint(final_checkpoint_path, trainer, model; experiment = experiment_name, stage = "final")
 
     bundle = Bundle(
         model_config = KeemenaLM.Core.model_config(model),
@@ -158,8 +160,8 @@ function main(args)
     write_samples(sample_path, samples)
 
     metrics = Dict(
-        "experiment" => EXPERIMENT_NAME,
-        "purpose" => "pipeline-validation benchmark only",
+        "experiment" => experiment_name,
+        "purpose" => purpose,
         "dataset" => Dict(
             "generator" => "CFG",
             "package" => "BenchmarkDataNLP.jl",
@@ -215,6 +217,83 @@ function main(args)
     println("tokenizer: $(tokenizer_path)")
     println("metrics: $(metrics_path)")
     println("samples: $(sample_path)")
+    return metrics
+end
+
+function main(args)
+    settings = ExperimentSettings()
+    output_dir = DEFAULT_OUTPUT_DIR
+    experiment_name = DEFAULT_EXPERIMENT_NAME
+
+    argument_index = 1
+    while argument_index <= length(args)
+        argument = args[argument_index]
+        if argument == "--output-dir"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --output-dir")
+            output_dir = abspath(args[argument_index])
+        elseif argument == "--complexity"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --complexity")
+            settings = merge_settings(settings; complexity = parse(Int, args[argument_index]))
+        elseif argument == "--num-sentences"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --num-sentences")
+            settings = merge_settings(settings; num_sentences = parse(Int, args[argument_index]))
+        elseif argument == "--experiment-name"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --experiment-name")
+            experiment_name = args[argument_index]
+        elseif startswith(argument, "--")
+            error("unknown argument $(argument)")
+        elseif argument_index == length(args)
+            output_dir = abspath(argument)
+        else
+            error("usage: julia --project=tools/benchmark_cfg tools/run_benchmark_cfg_experiment.jl [--output-dir DIR] [--complexity N] [--num-sentences N] [--experiment-name NAME] [output_dir]")
+        end
+        argument_index += 1
+    end
+
+    run_experiment(settings, output_dir; experiment_name = experiment_name)
+end
+
+function merge_settings(
+    settings::ExperimentSettings;
+    dataset_seed::Int = settings.dataset_seed,
+    model_seed::Int = settings.model_seed,
+    generation_seed::Int = settings.generation_seed,
+    complexity::Int = settings.complexity,
+    num_sentences::Int = settings.num_sentences,
+    enable_polysemy::Bool = settings.enable_polysemy,
+    context_length::Int = settings.context_length,
+    batch_size::Int = settings.batch_size,
+    epochs::Int = settings.epochs,
+    learning_rate::Float32 = settings.learning_rate,
+    num_layers::Int = settings.num_layers,
+    num_heads::Int = settings.num_heads,
+    embedding_size::Int = settings.embedding_size,
+    ffn_hidden_size::Int = settings.ffn_hidden_size,
+    prompt_prefix_characters::Int = settings.prompt_prefix_characters,
+    sample_generation_tokens::Int = settings.sample_generation_tokens,
+)
+    return ExperimentSettings(
+        dataset_seed = dataset_seed,
+        model_seed = model_seed,
+        generation_seed = generation_seed,
+        complexity = complexity,
+        num_sentences = num_sentences,
+        enable_polysemy = enable_polysemy,
+        context_length = context_length,
+        batch_size = batch_size,
+        epochs = epochs,
+        learning_rate = learning_rate,
+        num_layers = num_layers,
+        num_heads = num_heads,
+        embedding_size = embedding_size,
+        ffn_hidden_size = ffn_hidden_size,
+        prompt_prefix_characters = prompt_prefix_characters,
+        sample_generation_tokens = sample_generation_tokens,
+    )
 end
 
 function generate_cfg_dataset(settings::ExperimentSettings, dataset_dir::AbstractString, base_filename::AbstractString)
@@ -372,4 +451,6 @@ function write_samples(path::AbstractString, samples)
     return path
 end
 
-main(ARGS)
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(ARGS)
+end
