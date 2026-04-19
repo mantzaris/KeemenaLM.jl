@@ -31,6 +31,9 @@ function run_prepared_better_local_real_text_experiment(
     ),
     experiment_name::AbstractString = PREPARED_CORPUS_EXPERIMENT_NAME,
     purpose::AbstractString = PREPARED_CORPUS_EXPERIMENT_PURPOSE,
+    optimizer_builder = nothing,
+    optimizer_name::AbstractString = "Flux.Descent",
+    optimizer_hparams::AbstractDict = Dict{String, Any}(),
 )
     training_path = joinpath(dataset_dir, "training.txt")
     validation_path = joinpath(dataset_dir, "validation.txt")
@@ -87,15 +90,18 @@ function run_prepared_better_local_real_text_experiment(
 
     Random.seed!(settings.model_seed)
     model = instantiate(config; backend = :flux, seed = settings.model_seed)
+    resolved_optimizer_builder = isnothing(optimizer_builder) ? (experiment_settings -> Flux.Descent(experiment_settings.learning_rate)) : optimizer_builder
+    resolved_optimizer_hparams = isempty(optimizer_hparams) ? Dict{String, Any}("learning_rate" => settings.learning_rate) : Dict{String, Any}(String(key) => value for (key, value) in pairs(optimizer_hparams))
     trainer = KeemenaLM.Core.Trainer(
         model;
-        optimizer = Flux.Descent(settings.learning_rate),
+        optimizer = resolved_optimizer_builder(settings),
         backend = :flux,
         metadata = Dict(
             "experiment" => experiment_name,
             "corpus_source" => "prepared_better_local_real_text_corpus_v1",
             "tokenizer_path" => tokenizer_path,
             "prepared_corpus_metadata_path" => metadata_path,
+            "optimizer_name" => optimizer_name,
         ),
     )
 
@@ -187,6 +193,8 @@ function run_prepared_better_local_real_text_experiment(
             "model_seed" => settings.model_seed,
         ),
         "training" => Dict(
+            "optimizer_name" => optimizer_name,
+            "optimizer_hyperparameters" => resolved_optimizer_hparams,
             "batch_size" => settings.batch_size,
             "epochs" => settings.epochs,
             "learning_rate" => settings.learning_rate,
