@@ -1,6 +1,6 @@
-# Prepared Better Local Real-Text Final Run Preflight
+# Prepared Better Local Real-Text Final Run Preflight And Baseline
 
-Purpose: verify that the current best real-text recipe is ready for one explicit best-effort training run, without starting that long run yet.
+Purpose: verify that the current best real-text recipe is ready for one explicit best-effort training run, and record the resulting first trained demo baseline.
 
 ## Intended Final Recipe
 
@@ -86,3 +86,48 @@ The preflight is intentionally bounded:
 - resume-from-checkpoint smoke test
 
 It does not replace the eventual full training run.
+
+## Final Demo Run Outcome
+
+Final run output directory:
+- `tmp/prepared_better_local_real_text_final_demo_run`
+
+Final run recipe used:
+- corpus: `tmp/better_local_real_text_corpus_prepared/dataset`
+- backend: `:flux`
+- optimizer family: `Flux.Adam`
+- optimizer hyperparameters: `learning_rate = 0.001`
+- tokenizer path: char-level experiment-local tokenizer
+- `context_length = 48`
+- `num_layers = 2`
+- `num_heads = 2`
+- `embedding_size = 128`
+- `ffn_hidden_size = 256`
+- `batch_size = 16`
+- `epochs = 38`
+
+Final run results:
+- train loss `1.6413`
+- validation loss `1.8590`
+- test loss `1.8998`
+- final step count `3040`
+
+Final run artifacts:
+- `checkpoints/` with per-epoch checkpoints and `final_checkpoint.jld2`
+- `bundle/`
+- `tokenizer.json`
+- `metrics.json`
+- `sample_outputs.txt`
+- `evaluation_prompts.txt`
+- `evaluation_prompts.json`
+- `run_recipe.json`
+
+Qualitative assessment:
+- this is a valid trained proof-of-concept baseline for the current pipeline
+- it is not a strong chatbot and still produces weak, repetitive, domain-narrow text
+- it is useful as the repo's first trained demo artifact and as a reference point for later comparisons
+
+Remaining limitations:
+- tokenizer persistence remains separate from bundle semantics
+- qualitative generation is still weak and malformed in places
+- the run is a reproducible training/export/load demo, not a quality benchmark or conversational baseline

@@ -30,12 +30,14 @@ What has been demonstrated:
 - controlled sweeps showed that CFG complexity hurts learning materially
 - at the degraded synthetic point, extra epochs help only a little
 - width helped more than depth under the fixed synthetic recipe
-- two local real-text sanity checks also ran end to end using the same checkpoint, bundle, and reload path
+- local real-text sanity checks, prepared-corpus sweeps, optimizer sweeps, and final-run preflight all ran end to end using the same checkpoint, bundle, and reload path
+- a first trained demo baseline was produced on the prepared better local real-text corpus using `Flux.Adam(0.001)` with `context_length = 48`, `embedding_size = 128`, `ffn_hidden_size = 256`, and `epochs = 38`
 
 Current interpretation:
 - the package pipeline is working
-- current model quality on the tiny local real-text corpora is still weak
-- the next bottleneck is data scale and variety rather than core package mechanics
+- the current trained baseline is a valid proof-of-concept training/export/load artifact
+- qualitative generation is still weak, domain-narrow, and not chatbot-quality
+- the next clean training question is whether one more bounded Adam budget extension is worth it before shifting focus to corpus/tokenizer or demo polish work
 
 ## Supported Workflows
 
@@ -64,4 +66,5 @@ julia --project=. examples/chat_repl.jl tiny-demo
 - Official model keys such as `tiny-demo` are supported through local artifact registration in this repo setup. They are not a fresh-user remote download path yet.
 - Tokenizer and preprocessing objects are still supplied explicitly by the caller.
 - Lux currently supports instantiate, forward pass, shared bundle weights, and CPU generation only.
-- The next recommended work is better real-text data experiments with the current stable pipeline, not more architecture churn first.
+- The current best local real-text baseline uses `Flux.Adam(0.001)` and produces a real trained demo artifact, but it is still not a strong conversational model.
+- The next recommended work is either one more bounded Adam budget extension to look for flattening, or user-facing polish/documentation around the current trained baseline before broader data/tokenizer changes.

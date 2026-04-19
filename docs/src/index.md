@@ -22,14 +22,15 @@ KeemenaLM.jl is a Julia proof-of-concept language-model package for a small GPT-
 - The original staged proof-of-concept roadmap is complete through the planned v0.1 scope.
 - The synthetic CFG benchmark phase completed successfully and established the basic learning pattern for the tiny model.
 - Controlled sweeps showed that complexity hurts learning materially, extra epochs help only a little at the degraded point, and width helped more than depth under the fixed synthetic recipe.
-- Small and larger local real-text sanity checks also completed successfully with the same training, checkpoint, bundle, reload, and generation path.
-- Current real-text quality on the tiny local corpora is still weak, which points to data scale and variety as the next bottleneck rather than pipeline correctness.
+- Prepared-corpus real-text sweeps identified `Flux.Adam(0.001)` as a much better training path than plain gradient descent for the current tiny model.
+- A first trained demo baseline was completed on the prepared better local real-text corpus at `context_length = 48`, `embedding_size = 128`, `ffn_hidden_size = 256`, and `epochs = 38`.
+- Current real-text quality is still weak and domain-narrow, so this baseline is best understood as a proof-of-concept trained artifact rather than a good chatbot.
 
 ## Immediate next focus
 
 - keep the architecture stable
-- improve the real-text corpus used for experiments
-- rerun the same training, checkpoint, bundle, and generation path on better local real-text data before starting another major implementation stage
+- either run one more bounded Adam budget extension to check for flattening, or use the current trained baseline for user-facing demo/documentation work
+- treat broader corpus/tokenizer changes as the next quality-improvement branch after the current baseline is fully documented and evaluated
 
 ## API
 

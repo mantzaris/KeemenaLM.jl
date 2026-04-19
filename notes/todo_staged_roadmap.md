@@ -42,10 +42,11 @@ Current explicit limits:
 
 Current experiment status:
 - the synthetic CFG benchmark phase is complete enough for this proof-of-concept stage
-- a first small local real-text sanity check completed successfully
-- a second larger local real-text sanity check also completed successfully
-- both real-text runs confirmed that the pipeline works on local text, but current model quality remains weak on the tiny corpora used
-- the main bottleneck is now corpus size and variety rather than checkpoint, bundle, or training-path correctness
+- local real-text sanity checks and prepared-corpus sweeps completed successfully
+- optimizer and budget sweeps established `Flux.Adam(0.001)` as the best current training path for the tiny real-text setup
+- a first trained demo baseline was produced successfully on the prepared better local real-text corpus
+- the pipeline is now proven end to end for training, checkpointing, bundle export/load, and saved-prompt generation
+- current qualitative generation is still weak and domain-narrow, so the trained baseline is a proof-of-concept artifact rather than a good chatbot
 
 ---
 
@@ -60,11 +61,11 @@ Rules for new stages:
 - prefer user-facing simplification before speculative expansion
 
 Recommended priority order for future work:
-1. larger and cleaner real-text data experiments using the current stable pipeline
-2. tokenizer and preprocessing integration polish
-3. real remote official model distribution
-4. Lux training parity
-5. documentation and release packaging improvements as needed
+1. either one more bounded Adam budget extension or stabilization/documentation around the first trained demo baseline
+2. larger and cleaner real-text data work using the current stable pipeline
+3. tokenizer and preprocessing integration polish
+4. real remote official model distribution
+5. Lux training parity
 
 Immediate experiment continuation is documented separately in:
 - `next_planned_experiments.md`
@@ -186,4 +187,4 @@ The package currently meets the original proof-of-concept usability target:
 - one official demo model can be resolved and loaded through the package API
 
 Future stages should improve ergonomics, distribution, and backend depth rather than recreate the already-completed baseline.
-The immediate next learning task is to improve the real-text corpus, not to reopen core architecture.
+The immediate next learning task is either to confirm Adam-budget flattening or to stabilize and compare against the new trained baseline, not to reopen core architecture.
