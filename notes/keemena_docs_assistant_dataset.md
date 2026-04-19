@@ -49,7 +49,7 @@ julia --project=. tools/prepare_keemena_docs_assistant_dataset.jl
 Default output directory for the cleaned chatbot-ready pass:
 
 ```text
-tmp/keemena_docs_assistant_dataset_v2
+tmp/keemena_docs_assistant_dataset_v4
 ```
 
 Files written:
@@ -66,14 +66,24 @@ Files written:
 
 This is suitable for a first narrow docs-assistant proof of concept. It is not an open-domain chat corpus and it should not be treated as a polished customer-support dataset. The dataset is only as good as the local docs it was derived from, so expect narrow coverage and occasional phrasing that sounds like documentation rather than natural dialogue.
 
-## Cleanup policy for v2
+## Cleanup policy for v4
 
-The first pass was structurally correct but still included too many documentation-shaped artifacts. The v2 cleanup keeps the pipeline deterministic and scriptable while improving pair quality:
+The earlier chatbot datasets were structurally correct but still too documentation-shaped for answer generation. The v4 pass keeps the pipeline deterministic and scriptable while improving chat supervision directly:
 
-- filter table-heavy answers and markdown-pipe dumps
-- filter boilerplate recipe fragments such as `What you should see`, `Returns`, `Common knobs`, and similar walkthrough scaffolding
-- filter clearly truncated answer stubs that end in a dangling colon or ellipsis
-- make fallback questions shorter and more like plausible user asks by using the leaf section title rather than the full heading path
-- add a small deterministic KeemenaLM-specific supplement for bundle, checkpoint, source-resolution, official-model, and chat workflow coverage
+- keep one best deterministic answer per question so training sees a more consistent assistant target
+- append an explicit assistant end marker to every sample:
 
-The v2 dataset may be smaller than the first pass. That is intentional if the result is cleaner and more chatbot-like.
+```text
+<END_ASSISTANT>
+```
+
+- limit auto-derived pairs to the first substantive paragraph per section
+- shorten auto-derived answers toward one or two direct sentences instead of full docs fragments
+- filter more low-value answer shapes such as function-signature fragments, docs-index fragments, contract dumps, and repeated code-oriented explanations
+- keep filtering table-heavy answers, walkthrough scaffolding, and clearly truncated stubs
+- add a deterministic curated supplement with clearer assistant-style answers for:
+  - KeemenaLM bundle, checkpoint, chat, official-model, and limitation questions
+  - KeemenaPreprocessing streaming, offsets, alignments, and bundle save/load questions
+  - KeemenaSubwords loading, format, offset, troubleshooting, and integration questions
+
+The v4 dataset may be smaller than earlier passes. That is intentional if the result is more direct, more assistant-like, and a better teaching signal for answer generation.

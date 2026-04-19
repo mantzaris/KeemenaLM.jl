@@ -6,7 +6,7 @@ using KeemenaLM
 using Printf
 using Random
 
-include("run_benchmark_cfg_experiment.jl")
+include("experiment_common.jl")
 
 const PREPARED_CORPUS_INPUT_DIR = joinpath(pwd(), "tmp", "better_local_real_text_corpus_prepared", "dataset")
 const PREPARED_CORPUS_OUTPUT_DIR = joinpath(pwd(), "tmp", "prepared_better_local_real_text_experiment")
@@ -34,16 +34,18 @@ function run_prepared_better_local_real_text_experiment(
     optimizer_builder = nothing,
     optimizer_name::AbstractString = "Flux.Descent",
     optimizer_hparams::AbstractDict = Dict{String, Any}(),
+    document_separator::AbstractString = "\n",
+    source_type::AbstractString = "prepared_local_text_dataset",
+    dataset_format::AbstractString = "plain local text splits",
 )
     training_path = joinpath(dataset_dir, "training.txt")
     validation_path = joinpath(dataset_dir, "validation.txt")
     testing_path = joinpath(dataset_dir, "testing.txt")
-    metadata_path = joinpath(dataset_dir, "corpus_metadata.json")
+    metadata_path = resolve_prepared_metadata_path(dataset_dir)
 
     isfile(training_path) || throw(ArgumentError("prepared training split does not exist: $(training_path)"))
     isfile(validation_path) || throw(ArgumentError("prepared validation split does not exist: $(validation_path)"))
     isfile(testing_path) || throw(ArgumentError("prepared testing split does not exist: $(testing_path)"))
-    isfile(metadata_path) || throw(ArgumentError("prepared corpus metadata does not exist: $(metadata_path)"))
 
     output_dir = abspath(output_dir)
     checkpoint_dir = joinpath(output_dir, "checkpoints")
@@ -57,7 +59,7 @@ function run_prepared_better_local_real_text_experiment(
 
     split_texts = load_prepared_split_texts(dataset_dir)
     corpus_metadata = JSON3.read(read(metadata_path, String))
-    tokenizer = build_tokenizer(split_texts)
+    tokenizer = build_tokenizer(split_texts; extra_texts = isempty(document_separator) ? String[] : [document_separator])
     save_tokenizer(tokenizer_path, tokenizer)
 
     train_batches, train_stats = build_lm_batches(
@@ -65,18 +67,21 @@ function run_prepared_better_local_real_text_experiment(
         tokenizer;
         context_length = settings.context_length,
         batch_size = settings.batch_size,
+        document_separator = document_separator,
     )
     validation_batches, validation_stats = build_lm_batches(
         split_texts.validation,
         tokenizer;
         context_length = settings.context_length,
         batch_size = settings.batch_size,
+        document_separator = document_separator,
     )
     test_batches, test_stats = build_lm_batches(
         split_texts.testing,
         tokenizer;
         context_length = settings.context_length,
         batch_size = settings.batch_size,
+        document_separator = document_separator,
     )
 
     config = GPT2Config(
@@ -98,10 +103,11 @@ function run_prepared_better_local_real_text_experiment(
         backend = :flux,
         metadata = Dict(
             "experiment" => experiment_name,
-            "corpus_source" => "prepared_better_local_real_text_corpus_v1",
+            "corpus_source" => source_type,
             "tokenizer_path" => tokenizer_path,
             "prepared_corpus_metadata_path" => metadata_path,
             "optimizer_name" => optimizer_name,
+            "document_separator" => document_separator,
         ),
     )
 
@@ -172,15 +178,17 @@ function run_prepared_better_local_real_text_experiment(
         "experiment" => experiment_name,
         "purpose" => purpose,
         "corpus" => Dict(
-            "source_type" => "prepared_local_curated_markdown_docs",
+            "source_type" => source_type,
             "prepared_dataset_dir" => dataset_dir,
             "corpus_metadata_file" => metadata_path,
             "training_file" => training_path,
             "validation_file" => validation_path,
             "testing_file" => testing_path,
-            "split_policy" => String(corpus_metadata["split_policy"]),
-            "split_method" => corpus_metadata["split_method"],
-            "corpus_name" => String(corpus_metadata["corpus_name"]),
+            "split_policy" => metadata_value(corpus_metadata, "split_policy", "unspecified"),
+            "split_method" => metadata_value(corpus_metadata, "split_method", "deterministic_fixed_split"),
+            "corpus_name" => metadata_string(corpus_metadata, "corpus_name", basename(dataset_dir)),
+            "dataset_format" => dataset_format,
+            "document_separator" => document_separator,
         ),
         "model" => Dict(
             "backend" => "flux",
@@ -239,6 +247,26 @@ function run_prepared_better_local_real_text_experiment(
     println("metrics: $(metrics_path)")
     println("samples: $(sample_path)")
     return metrics
+end
+
+function resolve_prepared_metadata_path(dataset_dir::AbstractString)::String
+    candidates = (
+        joinpath(dataset_dir, "corpus_metadata.json"),
+        joinpath(dataset_dir, "metadata.json"),
+    )
+    for path in candidates
+        isfile(path) && return path
+    end
+    throw(ArgumentError("prepared dataset metadata does not exist in $(dataset_dir); expected one of $(collect(candidates))"))
+end
+
+function metadata_value(metadata, key::AbstractString, default)
+    return haskey(metadata, key) ? metadata[key] : default
+end
+
+function metadata_string(metadata, key::AbstractString, default::AbstractString)::String
+    value = metadata_value(metadata, key, default)
+    return value isa AbstractString ? String(value) : string(value)
 end
 
 function load_prepared_split_texts(dataset_dir::AbstractString)

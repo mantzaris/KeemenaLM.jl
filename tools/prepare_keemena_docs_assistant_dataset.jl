@@ -18,10 +18,13 @@ Base.@kwdef struct ChatPair
     chat_text::String
 end
 
-const DEFAULT_OUTPUT_DIRECTORY = joinpath(@__DIR__, "..", "tmp", "keemena_docs_assistant_dataset_v2")
-const MAX_PARAGRAPHS_PER_SECTION = 2
+const DEFAULT_OUTPUT_DIRECTORY = joinpath(@__DIR__, "..", "tmp", "keemena_docs_assistant_dataset_v4")
+const MAX_PARAGRAPHS_PER_SECTION = 1
 const MIN_PARAGRAPH_LENGTH = 48
 const MIN_ANSWER_WORDS = 6
+const ASSISTANT_END_MARKER = "<END_ASSISTANT>"
+const MAX_AUTO_ANSWER_CHARACTERS = 220
+const MAX_AUTO_ANSWER_SENTENCES = 2
 
 function repository_root()::String
     return normpath(joinpath(@__DIR__, ".."))
@@ -88,7 +91,7 @@ function build_dataset()
         append!(candidates, generate_pairs(spec, sections))
     end
 
-    append!(candidates, supplemental_keemenalm_pairs())
+    append!(candidates, supplemental_curated_pairs())
 
     pairs = filter(is_pair_usable, deduplicate_pairs(candidates))
     sort!(pairs; by = pair -> pair.id)
@@ -98,7 +101,7 @@ function build_dataset()
     metadata = Dict(
         "intended_scope" => "Tiny narrow-domain Keemena Docs Assistant for KeemenaLM.jl, KeemenaPreprocessing.jl, and KeemenaSubwords.jl. Intended for factual, procedural, limitation, and troubleshooting QA from local project documentation only.",
         "format" => Dict(
-            "primary_split_files" => "Plain chat text with one sample rendered as 'User: ...\\nAssistant: ...' and blank-line separation between samples.",
+            "primary_split_files" => "Plain chat text with one sample rendered as 'User: ...\\nAssistant: ...\\n<END_ASSISTANT>' and blank-line separation between samples.",
             "auxiliary_split_files" => "JSONL with id, package, source_file, section_title, category, question, answer, and chat_text.",
         ),
         "formatting_policy" => Dict(
@@ -108,14 +111,16 @@ function build_dataset()
                 "strip markdown heading/list markers and inline backticks",
                 "collapse whitespace",
                 "keep short user-facing docstrings only for selected KeemenaLM API files",
-                "skip table-heavy, list-dump, and recipe-boilerplate paragraphs",
+                "skip table-heavy, list-dump, registry-metadata, and recipe-boilerplate paragraphs",
             ],
             "pair_generation" => [
                 "derive section-aware QA/chat pairs from curated local docs only",
                 "use deterministic question templates based on section title and paragraph content",
-                "limit to the first few substantive paragraphs per section",
+                "limit to the first substantive paragraph per section for cleaner supervision",
                 "prefer factual, procedural, limitation, and troubleshooting prompts",
-                "add a small deterministic KeemenaLM supplemental set for bundle, checkpoint, chat, and model-source coverage",
+                "add a small deterministic curated supplement for clearer bundle, checkpoint, chat, limitation, troubleshooting, tokenizer, and integration coverage",
+                "keep one best deterministic answer per question so training sees a more consistent assistant target",
+                "append an explicit assistant end marker after every answer",
             ],
         ),
         "split_policy" => Dict(
@@ -132,7 +137,10 @@ function build_dataset()
         ),
         "counts_by_package" => count_by_package(pairs),
         "counts_by_category" => count_by_category(pairs),
-        "source_files" => [spec.path for spec in specs],
+        "source_files" => unique(vcat([spec.path for spec in specs], [pair.source_file for pair in pairs])),
+        "chat_markers" => Dict(
+            "assistant_end" => ASSISTANT_END_MARKER,
+        ),
     )
 
     return pairs, metadata
@@ -269,7 +277,17 @@ function skip_section(title::AbstractString)::Bool
            occursin("code of conduct", lower_title) ||
            occursin("community guideline", lower_title) ||
            occursin("enforcement", lower_title) ||
-           occursin("documentation map", lower_title)
+           occursin("documentation map", lower_title) ||
+           lower_title == "api" ||
+           occursin("current progress", lower_title) ||
+           occursin("current project progress", lower_title) ||
+           occursin("immediate next focus", lower_title) ||
+           occursin("start here", lower_title) ||
+           occursin("summary", lower_title) ||
+           occursin("some recipes", lower_title) ||
+           occursin("what you get", lower_title) ||
+           occursin("key features", lower_title) ||
+           occursin("scope and ecosystem", lower_title)
 end
 
 function skip_paragraph(paragraph::AbstractString)::Bool
@@ -290,8 +308,39 @@ function skip_paragraph(paragraph::AbstractString)::Bool
            startswith(lower_paragraph, "batch encoding") ||
            startswith(lower_paragraph, "training-ready matrices") ||
            startswith(lower_paragraph, "you have:") ||
+           startswith(lower_paragraph, "home / start here:") ||
+           startswith(lower_paragraph, "fields ") ||
+           startswith(lower_paragraph, "format symbol:") ||
+           startswith(lower_paragraph, "format symbols:") ||
+           startswith(lower_paragraph, "one string ->") ||
+           startswith(lower_paragraph, "ids:") ||
+           startswith(lower_paragraph, "clean_text =") ||
+           startswith(lower_paragraph, "top-level structure") ||
+           startswith(lower_paragraph, "an immutable bidirectional mapping") ||
+           startswith(lower_paragraph, "this document is the canonical contract") ||
+           startswith(lower_paragraph, "purpose:") ||
+           startswith(lower_paragraph, "generated from registry metadata") ||
+           startswith(lower_paragraph, "0 ... n") ||
+           startswith(lower_paragraph, "the channel is unbuffered") ||
+           startswith(lower_paragraph, "for tokenizer development") ||
+           startswith(lower_paragraph, "directory preference order:") ||
+           startswith(lower_paragraph, "use the hf export target") ||
+           startswith(lower_paragraph, "calls _ensure_lower_levels!") ||
+           startswith(lower_paragraph, "if you are new to the package") ||
+           startswith(lower_paragraph, "choose a tokenizer source:") ||
+           startswith(lower_paragraph, "this page gives a practical introduction") ||
+           startswith(lower_paragraph, "current supported state:") ||
+           startswith(lower_paragraph, "any callable f(") ||
+           startswith(lower_paragraph, "once you have called build_ensure_alignments!") ||
            occursin("objective:", lower_paragraph) ||
            occursin("steps:", lower_paragraph) ||
+           occursin("distribution:", lower_paragraph) ||
+           occursin("expected files:", lower_paragraph) ||
+           occursin("upstream:", lower_paragraph) ||
+           occursin("license:", lower_paragraph) ||
+           occursin("https://", lower_paragraph) ||
+           occursin("http://", lower_paragraph) ||
+           (count(==(':'), paragraph) >= 4 && count(==('.'), paragraph) <= 1) ||
            count(==('|'), paragraph) >= 2
 end
 
@@ -304,13 +353,13 @@ function generate_pairs(spec::SourceSpec, sections)::Vector{ChatPair}
         for (index, paragraph) in enumerate(paragraphs)
             question = infer_question(spec, section_title, paragraph, index)
             category = infer_category(section_title, paragraph)
-            answer = paragraph
+            answer = normalize_answer(paragraph, category; curated = false)
 
             length(question) >= 12 || continue
             length(answer) >= MIN_PARAGRAPH_LENGTH || continue
 
             pair_id = bytes2hex(sha1(string(spec.package, "|", spec.path, "|", section_title, "|", index, "|", question, "|", answer)))
-            chat_text = "User: $(question)\nAssistant: $(answer)"
+            chat_text = render_chat_text(question, answer)
 
             push!(pairs, ChatPair(
                 id = pair_id,
@@ -326,6 +375,62 @@ function generate_pairs(spec::SourceSpec, sections)::Vector{ChatPair}
     end
 
     return pairs
+end
+
+function normalize_answer(answer::AbstractString, category::AbstractString)::String
+    return normalize_answer(answer, category; curated = false)
+end
+
+function normalize_answer(answer::AbstractString, category::AbstractString; curated::Bool)::String
+    normalized = replace(answer, '\u2011' => '-')
+    normalized = replace(normalized, '\u2013' => '-')
+    normalized = replace(normalized, '\u2014' => '-')
+    normalized = replace(normalized, r"\s+" => " ")
+    normalized = strip(normalized)
+    normalized = replace(normalized, r":\s*$" => "")
+    normalized = replace(normalized, r"\s*:\s+" => ": ")
+    normalized = strip(normalized)
+
+    if category == "procedural" && occursin("use `", normalized)
+        normalized = replace(normalized, '`' => "")
+    end
+
+    curated || (normalized = summarize_auto_answer(normalized))
+
+    startswith(normalized, "Not yet supported:") && (normalized = replace(normalized, "Not yet supported:" => "Not supported yet:"))
+    startswith(normalized, "Current supported state:") && (normalized = replace(normalized, "Current supported state:" => "Supported now:"))
+
+    if !isempty(normalized)
+        first_char = first(normalized)
+        if islowercase(first_char) && occursin(r"^[a-z][a-z0-9 -]+"i, normalized) && !occursin(r"^[a-z0-9_]+[\(\)]", normalized)
+            normalized = uppercase(first(normalized)) * normalized[nextind(normalized, firstindex(normalized)):end]
+        end
+    end
+
+    endswith(normalized, '.') || endswith(normalized, '!') || endswith(normalized, '?') || (normalized *= ".")
+    return normalized
+end
+
+function summarize_auto_answer(answer::AbstractString)::String
+    shortened = strip(answer)
+    sentences = [strip(piece) for piece in split(shortened, r"(?<=[.!?])\s+") if !isempty(strip(piece))]
+
+    if !isempty(sentences)
+        shortened = join(first(sentences, min(MAX_AUTO_ANSWER_SENTENCES, length(sentences))), " ")
+    end
+
+    if length(shortened) > MAX_AUTO_ANSWER_CHARACTERS
+        cutoff = findlast(==(' '), shortened[1:MAX_AUTO_ANSWER_CHARACTERS])
+        cutoff === nothing || (shortened = shortened[1:cutoff])
+        shortened = strip(shortened)
+    end
+
+    shortened = replace(shortened, r"\s+" => " ")
+    return strip(shortened)
+end
+
+function render_chat_text(question::AbstractString, answer::AbstractString)::String
+    return "User: $(strip(question))\nAssistant: $(strip(answer))\n$(ASSISTANT_END_MARKER)"
 end
 
 function infer_question(spec::SourceSpec, section_title::AbstractString, paragraph::AbstractString, paragraph_index::Integer)::String
@@ -357,6 +462,8 @@ function infer_question(spec::SourceSpec, section_title::AbstractString, paragra
         return "How do I load resources in $(package)?"
     elseif occursin("saving", lower_title)
         return "How do I save outputs in $(package)?"
+    elseif lower_title == "troubleshooting"
+        return "How do I troubleshoot common issues in $(package)?"
     elseif occursin("troubleshooting", lower_title)
         return "How do I troubleshoot $(leaf_title) in $(package)?"
     elseif occursin("training", lower_title) && occursin("tokenizer", lower_paragraph)
@@ -440,16 +547,62 @@ function is_pair_usable(pair::ChatPair)::Bool
     occursin(r"\|\s*stage\s*\|"i, answer) && return false
     occursin(r"\|\s*symptom\s*\|"i, answer) && return false
     occursin(r"\|\s*keyword\s*\|"i, answer) && return false
+    occursin("distribution:", lower_answer) && return false
+    occursin("expected files:", lower_answer) && return false
+    occursin("upstream:", lower_answer) && return false
+    occursin("license:", lower_answer) && return false
+    occursin("http://", lower_answer) && return false
+    occursin("https://", lower_answer) && return false
+    startswith(lower_answer, "fields ") && return false
+    startswith(lower_answer, "format symbol:") && return false
+    startswith(lower_answer, "format symbols:") && return false
+    startswith(lower_answer, "home / start here:") && return false
+    startswith(lower_answer, "one string ->") && return false
+    startswith(lower_answer, "ids:") && return false
+    startswith(lower_answer, "top-level structure") && return false
+    startswith(lower_answer, "this document is the canonical contract") && return false
+    startswith(lower_answer, "0 ... n") && return false
+    startswith(lower_answer, "the channel is unbuffered") && return false
+    startswith(lower_answer, "for tokenizer development") && return false
+    startswith(lower_answer, "directory preference order:") && return false
+    startswith(lower_answer, "use the hf export target") && return false
+    startswith(lower_answer, "calls _ensure_lower_levels!") && return false
+    startswith(lower_answer, "current supported state:") && return false
+    startswith(lower_answer, "see the generated api reference page") && return false
+    startswith(lower_answer, "if the bundle has") && return false
+    startswith(lower_answer, "that translates") && return false
+    startswith(lower_answer, "pairing of a corpus") && return false
+    startswith(lower_answer, "offsets_coordinate_system()") && return false
+    startswith(lower_answer, "validate_offsets_contract(") && return false
+    startswith(lower_answer, "tokenize(tok, text)") && return false
+    startswith(lower_answer, "keemenapreprocessing: produces") && return false
+    startswith(lower_answer, "the streaming merge helper") && return false
+    startswith(lower_answer, "creates the requested") && return false
+    startswith(lower_answer, "this page is a choose-your-path") && return false
+    startswith(lower_answer, "this page is a first-hour") && return false
+    startswith(lower_answer, "for some tasks") && return false
+    startswith(lower_answer, "for step-by-step usage patterns") && return false
+    startswith(lower_answer, "some upstream models require") && return false
+    startswith(lower_answer, "_generated from registry metadata") && return false
+    startswith(lower_answer, "directories in sources are silently skipped") && return false
+    startswith(lower_answer, "encode_result and encode_batch_result") && return false
+    startswith(lower_answer, "vocab.json + merges.txt or encoder.json") && return false
+    (count(==(':'), answer) >= 4 && count(==('.'), answer) <= 1) && return false
     startswith(lower_question, "can you explain keemena") && return false
+    startswith(lower_question, "what should i know about") && return false
+    startswith(lower_question, "what does ") && return false
+    occursin("troubleshooting in", lower_question) && return false
     return true
 end
 
-function supplemental_keemenalm_pairs()::Vector{ChatPair}
-    package = "KeemenaLM.jl"
+function supplemental_curated_pairs()::Vector{ChatPair}
     root = repository_root()
+    preprocessing_root = normpath(joinpath(root, "..", "KeemenaPreprocessing.jl"))
+    subwords_root = normpath(joinpath(root, "..", "KeemenaSubwords.jl"))
 
     raw_pairs = [
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "README.md"),
             section_title = "Supplemental / Package Overview",
             category = "factual",
@@ -457,6 +610,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "KeemenaLM.jl is a Julia proof-of-concept language-model package centered on a small GPT-2 style decoder-only model with portable bundles, resumable checkpoints, REPL chat, and a second inference backend.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "README.md"),
             section_title = "Supplemental / Supported State",
             category = "factual",
@@ -464,6 +618,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "The current proof-of-concept supports Flux inference and training, portable bundles, resumable checkpoints, REPL chat, official demo model resolution through local artifact registration, and Lux inference on CPU.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "README.md"),
             section_title = "Supplemental / Limitations",
             category = "limitations",
@@ -471,6 +626,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "Lux training parity is not supported yet, tokenizer and preprocessing objects are still supplied explicitly instead of being persisted inside bundles, and official models do not have a remote hosted download path in this repo setup.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "src/core/io/model_sources.jl"),
             section_title = "Supplemental / Source Resolution",
             category = "procedural",
@@ -478,6 +634,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "KeemenaLM resolves an existing local bundle directory first. If the source is not a local directory, it can then resolve a supported official model key such as tiny-demo through the local Julia artifact registry.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "notes", "official_models.md"),
             section_title = "Supplemental / Official Models",
             category = "procedural",
@@ -485,6 +642,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "In this repo setup the tiny-demo model is a locally registered artifact. You first run tools/build_public_model_artifact.jl, then resolve it with available_models(), download_model(\"tiny-demo\"), load_bundle(\"tiny-demo\"), or load_model(\"tiny-demo\").",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "notes", "official_models.md"),
             section_title = "Supplemental / Official Model Limits",
             category = "limitations",
@@ -492,6 +650,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "The official demo flow is local artifact registration only, not a fresh-user remote download path, and callers still have to supply the matching tokenizer and preprocessing convention explicitly.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "src/core/io/bundle_load.jl"),
             section_title = "Supplemental / Bundle Loading",
             category = "procedural",
@@ -499,6 +658,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "Use load_bundle(source) to load a model bundle from a directory or a supported official model source. The bundle loader reads the manifest, model config, and stored weights before returning a validated Bundle object.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "src/core/io/bundle_save.jl"),
             section_title = "Supplemental / Bundle Saving",
             category = "procedural",
@@ -506,6 +666,55 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "Use save_bundle(directory_path, bundle) to write the bundle manifest, model config, and weights into a bundle directory so the model can be reloaded later.",
         ),
         (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/io/model_sources.jl"),
+            section_title = "Supplemental / Resolve Bundle",
+            category = "procedural",
+            question = "What does resolve_bundle do in KeemenaLM.jl?",
+            answer = "resolve_bundle turns a bundle source into a validated local bundle directory path. It accepts a local directory and can also resolve supported official model keys through the local artifact registry.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/io/model_sources.jl"),
+            section_title = "Supplemental / Load Model",
+            category = "procedural",
+            question = "How do I instantiate a model from a bundle source in KeemenaLM.jl?",
+            answer = "Use load_model(source; backend=...) when you want one call that resolves the source, loads the bundle, and instantiates the model for the selected backend.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/io/model_sources.jl"),
+            section_title = "Supplemental / Local Path Precedence",
+            category = "factual",
+            question = "What happens if a local bundle directory has the same name as an official model key in KeemenaLM.jl?",
+            answer = "Local directory resolution wins first. KeemenaLM checks whether the source is an existing local bundle directory before it falls back to official model key resolution.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/io/bundle_schema.jl"),
+            section_title = "Supplemental / Bundle Contents",
+            category = "factual",
+            question = "What does a KeemenaLM bundle contain?",
+            answer = "A KeemenaLM bundle is the portable inference package. It stores the bundle manifest, the model config, and the model weights needed to reload the model later.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/io/bundle_schema.jl"),
+            section_title = "Supplemental / Bundle Limits",
+            category = "limitations",
+            question = "Do KeemenaLM bundles include tokenizer and preprocessing objects?",
+            answer = "Not yet. Bundles currently carry the model payload, but callers still provide the matching tokenizer and preprocessing behavior explicitly.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/io/model_sources.jl"),
+            section_title = "Supplemental / Remote Model Support",
+            category = "limitations",
+            question = "Can KeemenaLM fetch official models from a remote host in this repo setup?",
+            answer = "No. The current official-model flow is local artifact registration only, so you must register or build the artifact locally before resolving the model key.",
+        ),
+        (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "src/core/generation/chat.jl"),
             section_title = "Supplemental / ChatSession",
             category = "factual",
@@ -513,6 +722,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "ChatSession is the minimal in-memory chat wrapper around generate. It keeps the model, tokenizer, preprocessing object, generation config, system prompt, and message history together for chat-style prompting.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "src/core/generation/chat.jl"),
             section_title = "Supplemental / Chat Workflow",
             category = "procedural",
@@ -520,6 +730,7 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "chat! renders a chat prompt from the current session state, generates an assistant reply, and appends both the user message and assistant response to the in-memory message history.",
         ),
         (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "src/core/training/checkpoints.jl"),
             section_title = "Supplemental / Checkpoints",
             category = "procedural",
@@ -527,40 +738,266 @@ function supplemental_keemenalm_pairs()::Vector{ChatPair}
             answer = "A checkpoint stores the model config, portable weight dictionary, optimizer state, step, epoch, RNG state, and metadata. save_checkpoint writes that snapshot to JLD2 and load_checkpoint validates and restores it.",
         ),
         (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/training/checkpoints.jl"),
+            section_title = "Supplemental / Checkpoint Resume",
+            category = "procedural",
+            question = "What do I need to resume training from a KeemenaLM checkpoint?",
+            answer = "You need the checkpoint file and the same training path. load_checkpoint restores the saved model snapshot, optimizer state, counters, RNG state, and metadata so training can continue from that point.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "src/core/training/checkpoints.jl"),
+            section_title = "Supplemental / Checkpoint Validation",
+            category = "troubleshooting",
+            question = "Why might load_checkpoint fail in KeemenaLM.jl?",
+            answer = "load_checkpoint validates the checkpoint schema, backend, architecture, required keys, and basic counter fields. It fails when the file is missing required entries or does not match the supported checkpoint format.",
+        ),
+        (
+            package = "KeemenaLM.jl",
             source_file = joinpath(root, "examples", "chat_repl.jl"),
             section_title = "Supplemental / Chat REPL",
             category = "procedural",
             question = "How do I start the chat REPL in KeemenaLM.jl?",
             answer = "Run examples/chat_repl.jl with a bundle directory or official model key. In the Stage 6 demo flow, official model keys such as tiny-demo must be registered locally first and the caller still supplies tokenizer and preprocessing behavior explicitly.",
         ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "examples", "chat_demo.jl"),
+            section_title = "Supplemental / One Turn Chat Demo",
+            category = "procedural",
+            question = "How do I run a one-turn chat demo in KeemenaLM.jl?",
+            answer = "Run examples/chat_demo.jl with a bundle directory or official model key. In this repo setup, official keys such as tiny-demo must be registered locally first.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "README.md"),
+            section_title = "Supplemental / Lux State",
+            category = "limitations",
+            question = "What does Lux currently support in KeemenaLM.jl?",
+            answer = "Lux currently supports model instantiation, forward pass, shared bundle weights, and CPU generation. Full Lux training parity is not part of the supported path yet.",
+        ),
+        (
+            package = "KeemenaLM.jl",
+            source_file = joinpath(root, "README.md"),
+            section_title = "Supplemental / Quality Expectations",
+            category = "limitations",
+            question = "Is the current KeemenaLM demo model already a good chatbot?",
+            answer = "No. The current baseline is still a proof-of-concept artifact with weak, domain-narrow generation, so it is useful for pipeline validation but not yet a strong chatbot.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "README.md"),
+            section_title = "Supplemental / Package Overview",
+            category = "factual",
+            question = "What is KeemenaPreprocessing.jl?",
+            answer = "KeemenaPreprocessing.jl is a streaming text-preparation pipeline for Julia. It turns raw text into normalized token ids, vocabularies, offset vectors, and alignment-ready bundle structures.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "docs", "src", "guides", "streaming.md"),
+            section_title = "Supplemental / Streaming",
+            category = "procedural",
+            question = "When should I use streaming in KeemenaPreprocessing.jl?",
+            answer = "Use streaming when the corpus does not fit comfortably in memory or when you want bounded-memory preprocessing. The streaming helpers trade some throughput for fixed-size chunk processing.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "docs", "src", "guides", "streaming.md"),
+            section_title = "Supplemental / Streaming Full",
+            category = "procedural",
+            question = "What does preprocess_corpus_streaming_full do?",
+            answer = "preprocess_corpus_streaming_full runs the streaming pipeline and merges the chunks into one cohesive bundle. It is the right choice when you still want a single final artifact without loading the raw corpus all at once.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "docs", "src", "guides", "quickstart.md"),
+            section_title = "Supplemental / Bundle Save Load",
+            category = "procedural",
+            question = "How do I save and reload a preprocessing bundle?",
+            answer = "Use save_preprocess_bundle to write the bundle to JLD2 and load_preprocess_bundle to read it back. That is the default convenience path for saving prepared corpora and metadata.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "docs", "src", "guides", "offsets.md"),
+            section_title = "Supplemental / Offsets",
+            category = "factual",
+            question = "What offset convention does KeemenaPreprocessing.jl use?",
+            answer = "KeemenaPreprocessing uses 1-based offset vectors that are monotone and sentinel-terminated. That lets you recover each segment with offsets[i] : offsets[i+1]-1.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "docs", "src", "guides", "levels.md"),
+            section_title = "Supplemental / Alignments",
+            category = "procedural",
+            question = "What does build_ensure_alignments! do in KeemenaPreprocessing.jl?",
+            answer = "build_ensure_alignments! ensures the canonical cross-level membership maps exist in the bundle. It is the standard way to restore byte-to-word and related alignments before downstream lookup work.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "docs", "src", "guides", "quickstart.md"),
+            section_title = "Supplemental / Paragraph Offsets Warning",
+            category = "troubleshooting",
+            question = "Why are paragraph offsets not being recorded in KeemenaPreprocessing.jl?",
+            answer = "Paragraph offsets require preserved newlines. If you request paragraph offsets while preserve_newlines is false, the pipeline warns and turns newline preservation on so paragraph structure can be recorded.",
+        ),
+        (
+            package = "KeemenaPreprocessing.jl",
+            source_file = joinpath(preprocessing_root, "docs", "src", "guides", "quickstart.md"),
+            section_title = "Supplemental / Common Troubleshooting",
+            category = "troubleshooting",
+            question = "How do I troubleshoot common issues in KeemenaPreprocessing.jl?",
+            answer = "Start by checking configuration mismatches, offset-recording flags, and whether preserve_newlines or build_ensure_alignments! is needed for the workflow you are using. Most common issues come from missing offsets, mixed vocabularies, or incompatible streaming assumptions.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "README.md"),
+            section_title = "Supplemental / Package Overview",
+            category = "factual",
+            question = "What is KeemenaSubwords.jl?",
+            answer = "KeemenaSubwords.jl is a tokenizer package for Julia that loads and works with multiple subword families, exposes ids, pieces, offsets, and masks, and helps build training-ready LM batches.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "loading.md"),
+            section_title = "Supplemental / Loading",
+            category = "procedural",
+            question = "How should I load a tokenizer in KeemenaSubwords.jl?",
+            answer = "Use load_tokenizer when you want key-based or auto-detected loading. Use an explicit loader such as load_bpe_gpt2, load_sentencepiece, or load_tiktoken when you want a strict file contract.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "troubleshooting.md"),
+            section_title = "Supplemental / Wrong Auto Detect",
+            category = "troubleshooting",
+            question = "What should I do if KeemenaSubwords auto-detects the wrong tokenizer format?",
+            answer = "Force the format explicitly in load_tokenizer. That is the recommended fix when a path could plausibly match more than one tokenizer family.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "troubleshooting.md"),
+            section_title = "Supplemental / tokenizer.model Confusion",
+            category = "troubleshooting",
+            question = "What if tokenizer.model is not actually a SentencePiece file?",
+            answer = "Treat the file format, not the filename, as the source of truth. Some models ship tiktoken text in a file named tokenizer.model, so you may need to force format=:tiktoken instead of SentencePiece loading.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "formats.md"),
+            section_title = "Supplemental / Formats",
+            category = "factual",
+            question = "What tokenizer formats does KeemenaSubwords.jl support?",
+            answer = "KeemenaSubwords supports classic BPE, GPT-2 style BPE, ByteBPE, WordPiece, Unigram, SentencePiece, tiktoken text files, and HF tokenizer.json formats.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "models.md"),
+            section_title = "Supplemental / Model Registry",
+            category = "factual",
+            question = "What built-in tokenizer models are available in KeemenaSubwords.jl?",
+            answer = "KeemenaSubwords includes a tokenizer registry with shipped, public, and gated model entries. Use the registry helpers to list available keys and inspect which models are built in versus installable.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "concepts.md"),
+            section_title = "Supplemental / Offset Caveat",
+            category = "limitations",
+            question = "What should I know about byte-level offsets in KeemenaSubwords.jl?",
+            answer = "Byte-level tokenizers return valid UTF-8 codeunit spans, but those spans are not always safe Julia string slice boundaries on multibyte text. Use the byte-level offset helpers when you need safe inspection.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "normalization_offsets_contract.md"),
+            section_title = "Supplemental / Sentinel Offsets",
+            category = "factual",
+            question = "What does the offset sentinel (0, 0) mean in KeemenaSubwords.jl?",
+            answer = "The sentinel (0, 0) means the token does not map to a real source-text span. Inserted special tokens commonly use that sentinel.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "structured_outputs_and_batching.md"),
+            section_title = "Supplemental / Training Ready Outputs",
+            category = "procedural",
+            question = "How do I get training-ready outputs in KeemenaSubwords.jl?",
+            answer = "Use the structured-output helpers when you want token ids, masks, and offsets together, and use quick_causal_lm_batch when you want a one-call path to padded causal-LM tensors.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "structured_outputs_and_batching.md"),
+            section_title = "Supplemental / Training Ready LM Batches",
+            category = "procedural",
+            question = "How do I get training-ready LM batches in KeemenaSubwords.jl?",
+            answer = "Use quick_causal_lm_batch for the one-call path from texts to ids, masks, and labels. Use the lower-level batching helpers when you already have tokenization results and want more control.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "concepts.md"),
+            section_title = "Supplemental / Export",
+            category = "procedural",
+            question = "How do I export a tokenizer from KeemenaSubwords.jl?",
+            answer = "Use export_tokenizer or save_tokenizer with the format you want. For HF-compatible fast-tokenizer loading, export to tokenizer.json with format=:hf_tokenizer_json.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "models.md"),
+            section_title = "Supplemental / Built-in And Gated Models",
+            category = "factual",
+            question = "Does KeemenaSubwords.jl support both built-in and gated tokenizer models?",
+            answer = "Yes. Some tokenizer models are shipped or publicly installable, while gated models require an explicit install_model! step and any needed upstream credentials.",
+        ),
+        (
+            package = "KeemenaSubwords.jl",
+            source_file = joinpath(subwords_root, "docs", "src", "integration.md"),
+            section_title = "Supplemental / Integration",
+            category = "procedural",
+            question = "How does KeemenaSubwords.jl integrate with KeemenaPreprocessing.jl?",
+            answer = "KeemenaSubwords tokenizers are callable and fit the tokenizer contract used by KeemenaPreprocessing. That makes it straightforward to preprocess text with KeemenaPreprocessing and then tokenize or batch it with KeemenaSubwords.",
+        ),
     ]
 
     return [
-        ChatPair(
-            id = bytes2hex(sha1(string(package, "|", pair.source_file, "|", pair.section_title, "|", pair.question, "|", pair.answer))),
-            package = package,
-            source_file = pair.source_file,
-            section_title = pair.section_title,
-            category = pair.category,
-            question = pair.question,
-            answer = pair.answer,
-            chat_text = "User: $(pair.question)\nAssistant: $(pair.answer)",
-        ) for pair in raw_pairs
+        let normalized_answer = normalize_answer(pair.answer, pair.category; curated = true)
+            ChatPair(
+                id = bytes2hex(sha1(string(pair.package, "|", pair.source_file, "|", pair.section_title, "|", pair.question, "|", normalized_answer))),
+                package = pair.package,
+                source_file = pair.source_file,
+                section_title = pair.section_title,
+                category = pair.category,
+                question = pair.question,
+                answer = normalized_answer,
+                chat_text = render_chat_text(pair.question, normalized_answer),
+            )
+        end for pair in raw_pairs
     ]
 end
 
 function deduplicate_pairs(pairs::Vector{ChatPair})::Vector{ChatPair}
-    seen = Set{String}()
-    unique_pairs = ChatPair[]
+    seen_fingerprints = Set{String}()
+    by_question = Dict{String, ChatPair}()
 
     for pair in pairs
         fingerprint = lowercase(strip(pair.question)) * "\n" * lowercase(strip(pair.answer))
-        fingerprint in seen && continue
-        push!(seen, fingerprint)
-        push!(unique_pairs, pair)
+        fingerprint in seen_fingerprints && continue
+        push!(seen_fingerprints, fingerprint)
+
+        question_key = lowercase(strip(pair.question))
+        existing = get(by_question, question_key, nothing)
+        if existing === nothing || pair_rank(pair) < pair_rank(existing)
+            by_question[question_key] = pair
+        end
     end
 
-    return unique_pairs
+    return collect(values(by_question))
+end
+
+function pair_rank(pair::ChatPair)
+    answer = strip(pair.answer)
+    lower_answer = lowercase(answer)
+    is_curated = startswith(pair.section_title, "Supplemental /") ? 0 : 1
+    punctuation_penalty = endswith(answer, '.') || endswith(answer, '!') || endswith(answer, '?') ? 0 : 1
+    code_fragment_penalty = occursin("::", answer) || occursin("->", answer) || occursin(r"[A-Za-z_]+\(", answer) ? 1 : 0
+    doc_fragment_penalty = startswith(lower_answer, "use ") ? 0 : 0
+    return (is_curated, code_fragment_penalty, punctuation_penalty, length(answer), pair.id)
 end
 
 function split_pairs(pairs::Vector{ChatPair})
