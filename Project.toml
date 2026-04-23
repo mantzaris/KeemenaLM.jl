@@ -1,7 +1,7 @@
 name = "KeemenaLM"
 uuid = "2fc6a9bc-fb8b-4174-8db3-ef58dc8a472f"
-authors = ["Alexander V. Mantzaris"]
 version = "0.1.0"
+authors = ["Alexander V. Mantzaris"]
 
 [deps]
 Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -14,6 +14,7 @@ Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
 
 [compat]
+Lux = "1"
 julia = "1.10"
 
 [extras]
