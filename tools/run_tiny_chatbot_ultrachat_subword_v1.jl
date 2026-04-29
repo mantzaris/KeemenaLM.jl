@@ -8,9 +8,9 @@ using Printf
 using Random
 
 const TINY_CHATBOT_DATASET_DIR = joinpath(pwd(), "tmp", "tiny_chatbot_ultrachat_corpus_v1")
-const TINY_CHATBOT_SUBWORD_OUTPUT_DIR = joinpath(pwd(), "tmp", "tiny_chatbot_ultrachat_subword_run_v1")
-const TINY_CHATBOT_SUBWORD_EXPERIMENT_NAME = "tiny_chatbot_ultrachat_subword_run_v1"
-const TINY_CHATBOT_SUBWORD_PURPOSE = "first serious UltraChat-based subword conversational chatbot training run"
+const TINY_CHATBOT_SUBWORD_OUTPUT_DIR = joinpath(pwd(), "tmp", "tiny_chatbot_ultrachat_subword_candidate_run_v1")
+const TINY_CHATBOT_SUBWORD_EXPERIMENT_NAME = "tiny_chatbot_ultrachat_subword_candidate_run_v1"
+const TINY_CHATBOT_SUBWORD_PURPOSE = "current UltraChat-based subword conversational chatbot candidate training run"
 const TINY_CHATBOT_DOCUMENT_SEPARATOR = "\n\n"
 const CHAT_MARKERS = (
     user = "User:",
@@ -24,23 +24,25 @@ Base.@kwdef struct TinyChatbotSubwordSettings
     generation_seed::Int = 20260419
     context_length::Int = 128
     batch_size::Int = 16
-    epochs::Int = 1
+    epochs::Int = 2
     learning_rate::Float32 = 0.0003f0
-    num_layers::Int = 6
-    num_heads::Int = 6
-    embedding_size::Int = 384
-    ffn_hidden_size::Int = 1536
+    num_layers::Int = 8
+    num_heads::Int = 8
+    embedding_size::Int = 512
+    ffn_hidden_size::Int = 2048
     sample_generation_tokens::Int = 200
     tokenizer_trainer::Symbol = :hf_gpt2_bytebpe
     tokenizer_vocab_size::Int = 8192
     tokenizer_min_frequency::Int = 2
     tokenizer_model_name::String = "tiny_chatbot_ultrachat_gpt2_bytebpe"
     tokenizer_training_text_limit::Int = 20000
-    train_text_limit::Int = 3000
-    validation_text_limit::Int = 500
-    test_text_limit::Int = 500
+    train_text_limit::Int = 50000
+    validation_text_limit::Int = 1000
+    test_text_limit::Int = 1000
     validation_batch_limit::Int = 0
     test_batch_limit::Int = 0
+    log_every_steps::Int = 50
+    checkpoint_every_steps::Int = 500
     reuse_tokenizer_bundle_dir::String = ""
     document_separator::String = TINY_CHATBOT_DOCUMENT_SEPARATOR
     chat_special_tokens::Dict{Symbol,String} = Dict(
@@ -84,6 +86,8 @@ function updated_settings(settings::TinyChatbotSubwordSettings; kwargs...)
         test_text_limit = get(options, :test_text_limit, settings.test_text_limit),
         validation_batch_limit = get(options, :validation_batch_limit, settings.validation_batch_limit),
         test_batch_limit = get(options, :test_batch_limit, settings.test_batch_limit),
+        log_every_steps = get(options, :log_every_steps, settings.log_every_steps),
+        checkpoint_every_steps = get(options, :checkpoint_every_steps, settings.checkpoint_every_steps),
         reuse_tokenizer_bundle_dir = get(options, :reuse_tokenizer_bundle_dir, settings.reuse_tokenizer_bundle_dir),
         document_separator = get(options, :document_separator, settings.document_separator),
         chat_special_tokens = get(options, :chat_special_tokens, settings.chat_special_tokens),
@@ -110,10 +114,34 @@ function main(args)
             argument_index += 1
             argument_index <= length(args) || error("missing value for --epochs")
             settings = updated_settings(settings; epochs = parse(Int, args[argument_index]))
+        elseif argument == "--context-length"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --context-length")
+            settings = updated_settings(settings; context_length = parse(Int, args[argument_index]))
         elseif argument == "--batch-size"
             argument_index += 1
             argument_index <= length(args) || error("missing value for --batch-size")
             settings = updated_settings(settings; batch_size = parse(Int, args[argument_index]))
+        elseif argument == "--learning-rate"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --learning-rate")
+            settings = updated_settings(settings; learning_rate = parse(Float32, args[argument_index]))
+        elseif argument == "--num-layers"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --num-layers")
+            settings = updated_settings(settings; num_layers = parse(Int, args[argument_index]))
+        elseif argument == "--num-heads"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --num-heads")
+            settings = updated_settings(settings; num_heads = parse(Int, args[argument_index]))
+        elseif argument == "--embedding-size"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --embedding-size")
+            settings = updated_settings(settings; embedding_size = parse(Int, args[argument_index]))
+        elseif argument == "--ffn-hidden-size"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --ffn-hidden-size")
+            settings = updated_settings(settings; ffn_hidden_size = parse(Int, args[argument_index]))
         elseif argument == "--tokenizer-training-text-limit"
             argument_index += 1
             argument_index <= length(args) || error("missing value for --tokenizer-training-text-limit")
@@ -138,12 +166,20 @@ function main(args)
             argument_index += 1
             argument_index <= length(args) || error("missing value for --test-batch-limit")
             settings = updated_settings(settings; test_batch_limit = parse(Int, args[argument_index]))
+        elseif argument == "--log-every-steps"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --log-every-steps")
+            settings = updated_settings(settings; log_every_steps = parse(Int, args[argument_index]))
+        elseif argument == "--checkpoint-every-steps"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --checkpoint-every-steps")
+            settings = updated_settings(settings; checkpoint_every_steps = parse(Int, args[argument_index]))
         elseif argument == "--reuse-tokenizer-bundle-dir"
             argument_index += 1
             argument_index <= length(args) || error("missing value for --reuse-tokenizer-bundle-dir")
             settings = updated_settings(settings; reuse_tokenizer_bundle_dir = abspath(args[argument_index]))
         else
-            error("usage: julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl [--dataset-dir DIR] [--output-dir DIR] [--epochs N] [--batch-size N] [--tokenizer-training-text-limit N] [--train-text-limit N] [--validation-text-limit N] [--test-text-limit N] [--validation-batch-limit N] [--test-batch-limit N] [--reuse-tokenizer-bundle-dir DIR]")
+            error("usage: julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl [--dataset-dir DIR] [--output-dir DIR] [--epochs N] [--context-length N] [--batch-size N] [--learning-rate X] [--num-layers N] [--num-heads N] [--embedding-size N] [--ffn-hidden-size N] [--tokenizer-training-text-limit N] [--train-text-limit N] [--validation-text-limit N] [--test-text-limit N] [--validation-batch-limit N] [--test-batch-limit N] [--log-every-steps N] [--checkpoint-every-steps N] [--reuse-tokenizer-bundle-dir DIR]")
         end
         argument_index += 1
     end
@@ -171,6 +207,7 @@ function run_tiny_chatbot_subword_demo(
     tokenizer_bundle_dir = joinpath(output_dir, "tokenizer_bundle")
     metrics_path = joinpath(output_dir, "metrics.json")
     sample_path = joinpath(output_dir, "sample_outputs.txt")
+    progress_path = joinpath(output_dir, "progress.json")
 
     mkpath(output_dir)
     mkpath(checkpoint_dir)
@@ -250,11 +287,87 @@ function run_tiny_chatbot_subword_demo(
     println(@sprintf("initial validation loss: %.4f", initial_validation_loss))
 
     epoch_metrics = Dict{String, Any}[]
+    step_checkpoint_metrics = Dict{String, Any}[]
+    latest_checkpoint_path = nothing
+    write_progress(
+        progress_path;
+        status = "running",
+        epoch = 0,
+        step = trainer.step,
+        latest_train_loss = nothing,
+        latest_validation_loss = initial_validation_loss,
+        latest_checkpoint = nothing,
+    )
     for epoch in 1:settings.epochs
         epoch_losses = Float64[]
         for (input_batch, target_batch) in train_batches
             step_result = KeemenaLM.Core.train_step!(trainer, input_batch, target_batch)
             push!(epoch_losses, step_result.loss)
+
+            if settings.log_every_steps > 0 && trainer.step % settings.log_every_steps == 0
+                recent_count = min(length(epoch_losses), settings.log_every_steps)
+                recent_window = epoch_losses[(end - recent_count + 1):end]
+                recent_train_loss = sum(recent_window) / length(recent_window)
+                write_progress(
+                    progress_path;
+                    status = "running",
+                    epoch = epoch,
+                    step = trainer.step,
+                    latest_train_loss = recent_train_loss,
+                    latest_validation_loss = nothing,
+                    latest_checkpoint = latest_checkpoint_path,
+                )
+                println(@sprintf(
+                    "step %d  epoch %d/%d  recent_train_loss=%.4f",
+                    trainer.step,
+                    epoch,
+                    settings.epochs,
+                    recent_train_loss,
+                ))
+            end
+
+            if settings.checkpoint_every_steps > 0 && trainer.step % settings.checkpoint_every_steps == 0
+                step_validation_loss = mean_loss(model, validation_batches_for_eval)
+                step_checkpoint_path = joinpath(checkpoint_dir, @sprintf("step_%06d_checkpoint.jld2", trainer.step))
+                save_checkpoint(
+                    step_checkpoint_path,
+                    trainer,
+                    model;
+                    experiment = TINY_CHATBOT_SUBWORD_EXPERIMENT_NAME,
+                    epoch = epoch,
+                    step = trainer.step,
+                    stage = "step_interval",
+                )
+                push!(
+                    step_checkpoint_metrics,
+                    Dict(
+                        "epoch" => epoch,
+                        "step" => trainer.step,
+                        "train_loss_running_epoch_mean" => sum(epoch_losses) / length(epoch_losses),
+                        "validation_loss" => step_validation_loss,
+                        "validation_perplexity" => exp(step_validation_loss),
+                        "checkpoint_path" => step_checkpoint_path,
+                    ),
+                )
+                latest_checkpoint_path = step_checkpoint_path
+                write_progress(
+                    progress_path;
+                    status = "running",
+                    epoch = epoch,
+                    step = trainer.step,
+                    latest_train_loss = sum(epoch_losses) / length(epoch_losses),
+                    latest_validation_loss = step_validation_loss,
+                    latest_checkpoint = step_checkpoint_path,
+                )
+                println(@sprintf(
+                    "step checkpoint  epoch %d/%d  step=%d  validation_loss=%.4f  checkpoint=%s",
+                    epoch,
+                    settings.epochs,
+                    trainer.step,
+                    step_validation_loss,
+                    step_checkpoint_path,
+                ))
+            end
         end
 
         trainer.epoch = epoch
@@ -284,6 +397,16 @@ function run_tiny_chatbot_subword_demo(
             validation_loss,
             checkpoint_path,
         ))
+        latest_checkpoint_path = checkpoint_path
+        write_progress(
+            progress_path;
+            status = "running",
+            epoch = epoch,
+            step = trainer.step,
+            latest_train_loss = train_loss,
+            latest_validation_loss = validation_loss,
+            latest_checkpoint = checkpoint_path,
+        )
     end
 
     final_checkpoint_path = joinpath(checkpoint_dir, "final_checkpoint.jld2")
@@ -377,6 +500,8 @@ function run_tiny_chatbot_subword_demo(
             "test_batches" => length(test_batches),
             "validation_batches_for_eval" => length(validation_batches_for_eval),
             "test_batches_for_eval" => length(test_batches_for_eval),
+            "log_every_steps" => settings.log_every_steps,
+            "checkpoint_every_steps" => settings.checkpoint_every_steps,
             "train_token_stream_length" => train_stats.token_stream_length,
             "train_example_count" => train_stats.example_count,
             "validation_token_stream_length" => validation_stats.token_stream_length,
@@ -396,8 +521,10 @@ function run_tiny_chatbot_subword_demo(
             "sample_outputs_path" => sample_path,
             "evaluation_prompts_txt" => joinpath(output_dir, "evaluation_prompts.txt"),
             "evaluation_prompts_json" => joinpath(output_dir, "evaluation_prompts.json"),
+            "progress_path" => progress_path,
         ),
         "epoch_metrics" => epoch_metrics,
+        "step_checkpoint_metrics" => step_checkpoint_metrics,
         "split_stats" => Dict(
             "training" => split_text_stats(split_texts.training, settings.context_length, tokenizer; document_separator = settings.document_separator),
             "validation" => split_text_stats(split_texts.validation, settings.context_length, tokenizer; document_separator = settings.document_separator),
@@ -410,6 +537,15 @@ function run_tiny_chatbot_subword_demo(
     open(metrics_path, "w") do io
         JSON3.write(io, metrics)
     end
+    write_progress(
+        progress_path;
+        status = "completed",
+        epoch = trainer.epoch,
+        step = trainer.step,
+        latest_train_loss = isempty(epoch_metrics) ? nothing : epoch_metrics[end]["train_loss"],
+        latest_validation_loss = isempty(epoch_metrics) ? initial_validation_loss : epoch_metrics[end]["validation_loss"],
+        latest_checkpoint = final_checkpoint_path,
+    )
 
     println(@sprintf("final test loss: %.4f", test_loss))
     println("tokenizer bundle: $(tokenizer_bundle_dir)")
@@ -699,8 +835,30 @@ function subword_recipe_dict(dataset_dir::AbstractString, output_dir::AbstractSt
         "test_text_limit" => settings.test_text_limit,
         "validation_batch_limit" => settings.validation_batch_limit,
         "test_batch_limit" => settings.test_batch_limit,
+        "log_every_steps" => settings.log_every_steps,
+        "checkpoint_every_steps" => settings.checkpoint_every_steps,
         "document_separator" => settings.document_separator,
     )
+end
+
+function write_progress(
+    path::AbstractString;
+    status::AbstractString,
+    epoch,
+    step,
+    latest_train_loss,
+    latest_validation_loss,
+    latest_checkpoint,
+)
+    return write_json(path, Dict(
+        "status" => status,
+        "latest_epoch" => epoch,
+        "latest_step" => step,
+        "latest_train_loss" => latest_train_loss,
+        "latest_validation_loss" => latest_validation_loss,
+        "latest_checkpoint" => latest_checkpoint,
+        "updated_at_unix" => time(),
+    ))
 end
 
 function write_json(path::AbstractString, value)

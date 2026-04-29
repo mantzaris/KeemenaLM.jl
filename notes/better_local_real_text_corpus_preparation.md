@@ -67,21 +67,11 @@ The metadata file records:
 - per-file size stats
 - per-split size stats
 
-## First Training Run
+## Experiment Status
 
-The first experiment on this prepared corpus uses the existing tiny Flux pipeline unchanged.
-
-Run:
-
-```bash
-julia --project=tools/benchmark_cfg tools/run_prepared_better_local_real_text_experiment.jl
-```
-
-It writes outputs under:
-
-- `tmp/prepared_better_local_real_text_experiment/`
-
-This run exists to compare the prepared corpus against the earlier small, larger, and better local-text sanity checks while keeping the model and training recipe fixed.
+The prepared-real-text training scripts and generated outputs were removed after
+the project direction moved to the UltraChat subword chatbot path. This note is
+kept only as corpus-preparation history.
 
 ## Why This Corpus
 
