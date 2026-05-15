@@ -1,6 +1,12 @@
 const ChatMessage = NamedTuple{(:role, :content), Tuple{String, String}}
 const CHAT_ROLES = ("user", "assistant")
-const DEFAULT_CHAT_STOP_SEQUENCES = ("\nUser:", "\nSystem:")
+const DEFAULT_CHAT_STOP_SEQUENCES = (
+    "<END_ASSISTANT>",
+    "<CHAT_END>",
+    "\nUser:",
+    "\nAssistant:",
+    "\nSystem:",
+)
 
 """
 Minimal in-memory chat wrapper around `generate`.

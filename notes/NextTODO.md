@@ -10,9 +10,41 @@ Keep working from:
 
 - Corpus prep: `tools/prepare_tiny_chatbot_ultrachat_corpus.py`
 - Training runner: `tools/run_tiny_chatbot_ultrachat_subword_v1.jl`
+- No-training decoding evaluator: `tools/run_tiny_chatbot_ultrachat_decoding_eval.jl`
+- Candidate chat REPL: `tools/run_tiny_chatbot_ultrachat_chat_repl.jl`
 - Corpus note: `notes/tiny_chatbot_ultrachat_corpus_v1.md`
+- Latest completed run note: `notes/tiny_chatbot_ultrachat_subword_v2_fixed.md`
 - Prepared corpus: `tmp/tiny_chatbot_ultrachat_corpus_v1`
-- Last successful run: `tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1`
+- Previous retained model run: `tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1`
+- Latest corrected GPU run: `tmp/tiny_chatbot_ultrachat_subword_candidate_run_v2_fixed`
+
+## Latest Completed Run
+
+The corrected GPU `v2_fixed` run completed on 2026-05-15 and is documented in
+`notes/tiny_chatbot_ultrachat_subword_v2_fixed.md`.
+
+Final metrics:
+
+- final step: `111284`
+- epoch 2 train loss: `2.771995539587409`
+- validation loss: `2.6447167355808423`
+- test loss: `2.668845098776673`
+
+Interpretation:
+
+- numerically much better than `v1`
+- still not chatbot-quality because generated samples and interactive chat drift
+  off-task and repeat
+- large `v2_fixed` checkpoint/model weight artifacts were deleted after
+  inspection to free disk
+- retained `metrics.json`, `progress.json`, `run_recipe.json`,
+  `sample_outputs.txt`, evaluation prompts, and tokenizer metadata
+
+Important caveat:
+
+- `tmp/tiny_chatbot_ultrachat_subword_candidate_run_v2_fixed` is now
+  documentation-only; it cannot reload the trained model because the checkpoint
+  files and `bundle/weights.jld2` were intentionally removed.
 
 The last successful run completed cleanly and now keeps only final artifacts:
 
@@ -118,13 +150,14 @@ another expensive training run.
 
 ## How It Was Run
 
-The runner defaults now match the last successful candidate recipe. To rerun the
-same recipe explicitly:
+The runner defaults now match the last successful candidate recipe except for
+safer checkpointing. To rerun the same training shape safely:
 
 ```bash
-julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl \
+CUDA_VISIBLE_DEVICES=1 julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl \
   --dataset-dir tmp/tiny_chatbot_ultrachat_corpus_v1 \
   --output-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1 \
+  --device gpu \
   --context-length 128 \
   --num-layers 8 \
   --num-heads 8 \
@@ -138,11 +171,19 @@ julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword
   --validation-text-limit 1000 \
   --test-text-limit 1000 \
   --log-every-steps 50 \
-  --checkpoint-every-steps 500
+  --checkpoint-every-steps 5000 \
+  --max-step-checkpoints 2 \
+  --max-epoch-checkpoints 2
 ```
 
 For the next long training run, use a new output directory rather than
-overwriting the current candidate.
+overwriting the current candidate. The training runner now defaults to sparse
+step checkpoints and retention, so it should not recreate the previous dense
+checkpoint buildup unless those options are overridden.
+
+On the current two-GPU workstation, `CUDA_VISIBLE_DEVICES=1` selects the 32GB
+RTX 5000 Ada instead of the 4GB Quadro. Keep `--device gpu` in the command so the
+run fails loudly if CUDA is not available.
 
 ## Monitoring
 
@@ -168,12 +209,15 @@ du -sh tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/checkpoints
 
 ## Checkpoint Policy Next Time
 
-Use much sparser checkpoints. The last run wrote many `step_*.jld2` files and
-filled disk quickly.
+Use sparse checkpoints with retention. The last run wrote many `step_*.jld2`
+files and filled disk quickly.
 
 Recommendation:
 
-- For a serious multi-day run, use `--checkpoint-every-steps 5000` or higher.
+- The runner now defaults to `--checkpoint-every-steps 5000`.
+- The runner now keeps only the latest two step checkpoints and latest two epoch
+  checkpoints by default.
+- For a serious multi-day run, keep `--checkpoint-every-steps 5000` or higher.
 - Keep per-epoch/final checkpoints.
 - After a run completes and the bundle exports successfully, keep:
   - `bundle/`
@@ -196,24 +240,29 @@ find tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/checkpoints -maxdepth 1
 
 Do this first:
 
-1. Add a separate resampling/evaluation path that loads the existing candidate
-   bundle and tokenizer without retraining.
-2. Generate new samples with stop control:
+1. Run the separate resampling/evaluation path that loads the existing candidate
+   bundle and tokenizer without retraining:
+   ```bash
+   julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_decoding_eval.jl
+   ```
+2. Inspect the generated stop-controlled samples:
+   - `tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/sample_outputs_decoding_eval.txt`
+   - `tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/sample_outputs_decoding_eval.json`
+3. Compare the evaluator modes:
+   - current greedy/fixed-length behavior
+   - stop-controlled greedy behavior
+   - mild stop-controlled sampling
+4. Use the candidate REPL only after reviewing the evaluation output:
+   ```bash
+   julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_chat_repl.jl
+   ```
+5. For future training runs, the runner's sample generation now uses stop
+   control:
    - stop at `<END_ASSISTANT>`
    - stop at `<CHAT_END>`
    - stop at a new `\nUser:` turn
-   - optionally stop at a repeated `\nAssistant:` turn if it begins a new block
-3. Expose supported generation knobs:
-   - `max_new_tokens`
-   - `temperature`
-   - `top_k` or `top_p` if supported by `GenerationConfig`
-   - repetition control only if already supported cleanly
-4. Compare:
-   - current greedy/fixed-length behavior
-   - stop-controlled greedy behavior
-   - one mild sampling setting, if supported
-5. Write results next to the current run, for example:
-   - `tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/sample_outputs_decoding_eval.txt`
+   - stop at a repeated `\nAssistant:` turn
+   - stop at a new `\nSystem:` turn
 
 Only after that, decide the next expensive training run.
 
@@ -259,8 +308,8 @@ Minimal next-session plan:
 
 1. Read this file.
 2. Inspect `tools/run_tiny_chatbot_ultrachat_subword_v1.jl`.
-3. Add or create a no-training decoding evaluation path for the existing
+3. Run `tools/run_tiny_chatbot_ultrachat_decoding_eval.jl` against the existing
    candidate bundle.
-4. Generate stop-controlled samples.
+4. Inspect `sample_outputs_decoding_eval.txt`.
 5. Decide whether the next expensive run should be more epochs, more corpus
    exposure, larger context/model, or data/filtering changes.

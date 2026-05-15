@@ -37,7 +37,9 @@ Current interpretation:
 - the package pipeline is working
 - the current trained baseline is a valid proof-of-concept training/export/load artifact
 - qualitative generation is still weak, domain-narrow, and not chatbot-quality
-- the next clean training question is whether one more bounded Adam budget extension is worth it before shifting focus to corpus/tokenizer or demo polish work
+- the corrected UltraChat GPU `v2_fixed` run reached validation loss `2.6447` and test loss `2.6688`, materially better than `v1`
+- despite the numeric improvement, `v2_fixed` still drifts off-task and repeats, so it is not chatbot-quality
+- large `v2_fixed` checkpoint/model weight artifacts were removed after inspection; see `notes/tiny_chatbot_ultrachat_subword_v2_fixed.md`
 
 ## Supported Workflows
 
@@ -59,6 +61,16 @@ julia --project=. examples/chat_demo.jl tiny-demo
 REPL chat from a bundle directory or official model key:
 ```bash
 julia --project=. examples/chat_repl.jl tiny-demo
+```
+
+No-retraining decoding evaluation for the current UltraChat subword candidate:
+```bash
+julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_decoding_eval.jl
+```
+
+Interactive chat with the current UltraChat subword candidate:
+```bash
+julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_chat_repl.jl
 ```
 
 ## Notes

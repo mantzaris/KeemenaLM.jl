@@ -1,34 +1,36 @@
 function extract_weights(model::FluxGPT2Model)::Dict{String, Any}
     weights = Dict{String, Any}(
-        "token_embedding" => copy(model.token_embedding),
-        "position_embedding" => copy(model.position_embedding),
-        "final_layer_norm.weight" => copy(model.final_layer_norm.weight),
-        "final_layer_norm.bias" => copy(model.final_layer_norm.bias),
+        "token_embedding" => cpu_weight_copy(model.token_embedding),
+        "position_embedding" => cpu_weight_copy(model.position_embedding),
+        "final_layer_norm.weight" => cpu_weight_copy(model.final_layer_norm.weight),
+        "final_layer_norm.bias" => cpu_weight_copy(model.final_layer_norm.bias),
     )
 
     for (block_index, block) in enumerate(model.blocks)
         block_prefix = "blocks.$(block_index)"
 
-        weights["$(block_prefix).attention_norm.weight"] = copy(block.attention_norm.weight)
-        weights["$(block_prefix).attention_norm.bias"] = copy(block.attention_norm.bias)
-        weights["$(block_prefix).attention.q_proj.weight"] = copy(block.attention.q_proj.weight)
-        weights["$(block_prefix).attention.q_proj.bias"] = copy(block.attention.q_proj.bias)
-        weights["$(block_prefix).attention.k_proj.weight"] = copy(block.attention.k_proj.weight)
-        weights["$(block_prefix).attention.k_proj.bias"] = copy(block.attention.k_proj.bias)
-        weights["$(block_prefix).attention.v_proj.weight"] = copy(block.attention.v_proj.weight)
-        weights["$(block_prefix).attention.v_proj.bias"] = copy(block.attention.v_proj.bias)
-        weights["$(block_prefix).attention.out_proj.weight"] = copy(block.attention.out_proj.weight)
-        weights["$(block_prefix).attention.out_proj.bias"] = copy(block.attention.out_proj.bias)
-        weights["$(block_prefix).ffn_norm.weight"] = copy(block.ffn_norm.weight)
-        weights["$(block_prefix).ffn_norm.bias"] = copy(block.ffn_norm.bias)
-        weights["$(block_prefix).ffn_in.weight"] = copy(block.ffn_in.weight)
-        weights["$(block_prefix).ffn_in.bias"] = copy(block.ffn_in.bias)
-        weights["$(block_prefix).ffn_out.weight"] = copy(block.ffn_out.weight)
-        weights["$(block_prefix).ffn_out.bias"] = copy(block.ffn_out.bias)
+        weights["$(block_prefix).attention_norm.weight"] = cpu_weight_copy(block.attention_norm.weight)
+        weights["$(block_prefix).attention_norm.bias"] = cpu_weight_copy(block.attention_norm.bias)
+        weights["$(block_prefix).attention.q_proj.weight"] = cpu_weight_copy(block.attention.q_proj.weight)
+        weights["$(block_prefix).attention.q_proj.bias"] = cpu_weight_copy(block.attention.q_proj.bias)
+        weights["$(block_prefix).attention.k_proj.weight"] = cpu_weight_copy(block.attention.k_proj.weight)
+        weights["$(block_prefix).attention.k_proj.bias"] = cpu_weight_copy(block.attention.k_proj.bias)
+        weights["$(block_prefix).attention.v_proj.weight"] = cpu_weight_copy(block.attention.v_proj.weight)
+        weights["$(block_prefix).attention.v_proj.bias"] = cpu_weight_copy(block.attention.v_proj.bias)
+        weights["$(block_prefix).attention.out_proj.weight"] = cpu_weight_copy(block.attention.out_proj.weight)
+        weights["$(block_prefix).attention.out_proj.bias"] = cpu_weight_copy(block.attention.out_proj.bias)
+        weights["$(block_prefix).ffn_norm.weight"] = cpu_weight_copy(block.ffn_norm.weight)
+        weights["$(block_prefix).ffn_norm.bias"] = cpu_weight_copy(block.ffn_norm.bias)
+        weights["$(block_prefix).ffn_in.weight"] = cpu_weight_copy(block.ffn_in.weight)
+        weights["$(block_prefix).ffn_in.bias"] = cpu_weight_copy(block.ffn_in.bias)
+        weights["$(block_prefix).ffn_out.weight"] = cpu_weight_copy(block.ffn_out.weight)
+        weights["$(block_prefix).ffn_out.bias"] = cpu_weight_copy(block.ffn_out.bias)
     end
 
     return weights
 end
+
+cpu_weight_copy(weight) = copy(Flux.cpu(weight))
 
 function load_weights!(model::FluxGPT2Model, weights::Dict{String, Any})
     load_matrix!(model.token_embedding, weights, "token_embedding")

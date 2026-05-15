@@ -2,6 +2,11 @@
 Compute causal language-model cross entropy loss.
 """
 function causal_lm_cross_entropy(logits, targets)
+    loss, _, _ = causal_lm_cross_entropy_with_cache(logits, targets)
+    return loss
+end
+
+function causal_lm_cross_entropy_with_cache(logits, targets)
     ndims(logits) == 3 || throw(ArgumentError("logits must have shape (vocab_size, sequence_length, batch_size)"))
     ndims(targets) == 2 || throw(ArgumentError("targets must have shape (sequence_length, batch_size)"))
 
@@ -17,13 +22,45 @@ function causal_lm_cross_entropy(logits, targets)
         throw(ArgumentError("target token ids must stay within 1:vocab_size"))
 
     flat_logits = reshape(logits, vocab_size, :)
-    flat_targets = reshape(targets, 1, :)
+    flat_targets = reshape(targets_like_logits(logits, targets), 1, :)
     max_logits = maximum(flat_logits; dims = 1)
-    log_normalizers = max_logits .+ log.(sum(exp.(flat_logits .- max_logits); dims = 1))
+    shifted_exp = exp.(flat_logits .- max_logits)
+    probability_sums = sum(shifted_exp; dims = 1)
+    probabilities = shifted_exp ./ probability_sums
+    log_normalizers = max_logits .+ log.(probability_sums)
     log_probs = flat_logits .- log_normalizers
 
-    # Use broadcasted equality rather than scalar indexing so the same path works on CPU and GPU arrays.
-    target_mask = reshape(1:vocab_size, :, 1) .== flat_targets
+    class_ids = class_ids_like_logits(logits, vocab_size)
+    target_mask = reshape(class_ids, :, 1) .== flat_targets
     selected_log_probs = sum(log_probs .* target_mask; dims = 1)
-    return -sum(selected_log_probs) / token_count
+    loss = -sum(selected_log_probs) / token_count
+    return loss, probabilities, target_mask
+end
+
+function targets_like_logits(logits, targets)
+    device_targets = similar(logits, Int, size(targets))
+    device_targets .= targets
+    return device_targets
+end
+
+function class_ids_like_logits(logits, vocab_size::Int)
+    class_ids = similar(logits, Int, vocab_size)
+    class_ids .= 1:vocab_size
+    return class_ids
+end
+
+function ChainRulesCore.rrule(::typeof(causal_lm_cross_entropy), logits, targets)
+    loss, probabilities, target_mask = causal_lm_cross_entropy_with_cache(logits, targets)
+    token_count = size(logits, 2) * size(logits, 3)
+
+    function causal_lm_cross_entropy_pullback(loss_sensitivity)
+        flat_gradient = (probabilities .- target_mask) .* (loss_sensitivity / token_count)
+        return (
+            ChainRulesCore.NoTangent(),
+            reshape(flat_gradient, size(logits)),
+            ChainRulesCore.NoTangent(),
+        )
+    end
+
+    return loss, causal_lm_cross_entropy_pullback
 end

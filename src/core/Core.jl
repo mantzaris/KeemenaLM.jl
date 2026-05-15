@@ -3,6 +3,7 @@ module Core
 using JLD2
 using JSON3
 using StructTypes
+using ChainRulesCore
 
 export
     AbstractModelConfig,

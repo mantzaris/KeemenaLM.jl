@@ -18,10 +18,18 @@ const CHAT_MARKERS = (
     end_assistant = "<END_ASSISTANT>",
     chat_end = "<CHAT_END>",
 )
+const CHAT_DECODING_STOP_SEQUENCES = String[
+    CHAT_MARKERS.end_assistant,
+    CHAT_MARKERS.chat_end,
+    "\nUser:",
+    "\nAssistant:",
+    "\nSystem:",
+]
 
 Base.@kwdef struct TinyChatbotSubwordSettings
     model_seed::Int = 20260418
     generation_seed::Int = 20260419
+    device::Symbol = :auto
     context_length::Int = 128
     batch_size::Int = 16
     epochs::Int = 2
@@ -42,7 +50,9 @@ Base.@kwdef struct TinyChatbotSubwordSettings
     validation_batch_limit::Int = 0
     test_batch_limit::Int = 0
     log_every_steps::Int = 50
-    checkpoint_every_steps::Int = 500
+    checkpoint_every_steps::Int = 5000
+    max_step_checkpoints::Int = 2
+    max_epoch_checkpoints::Int = 2
     reuse_tokenizer_bundle_dir::String = ""
     document_separator::String = TINY_CHATBOT_DOCUMENT_SEPARATOR
     chat_special_tokens::Dict{Symbol,String} = Dict(
@@ -67,6 +77,7 @@ function updated_settings(settings::TinyChatbotSubwordSettings; kwargs...)
     return TinyChatbotSubwordSettings(
         model_seed = get(options, :model_seed, settings.model_seed),
         generation_seed = get(options, :generation_seed, settings.generation_seed),
+        device = get(options, :device, settings.device),
         context_length = get(options, :context_length, settings.context_length),
         batch_size = get(options, :batch_size, settings.batch_size),
         epochs = get(options, :epochs, settings.epochs),
@@ -88,6 +99,8 @@ function updated_settings(settings::TinyChatbotSubwordSettings; kwargs...)
         test_batch_limit = get(options, :test_batch_limit, settings.test_batch_limit),
         log_every_steps = get(options, :log_every_steps, settings.log_every_steps),
         checkpoint_every_steps = get(options, :checkpoint_every_steps, settings.checkpoint_every_steps),
+        max_step_checkpoints = get(options, :max_step_checkpoints, settings.max_step_checkpoints),
+        max_epoch_checkpoints = get(options, :max_epoch_checkpoints, settings.max_epoch_checkpoints),
         reuse_tokenizer_bundle_dir = get(options, :reuse_tokenizer_bundle_dir, settings.reuse_tokenizer_bundle_dir),
         document_separator = get(options, :document_separator, settings.document_separator),
         chat_special_tokens = get(options, :chat_special_tokens, settings.chat_special_tokens),
@@ -110,6 +123,10 @@ function main(args)
             argument_index += 1
             argument_index <= length(args) || error("missing value for --output-dir")
             output_dir = abspath(args[argument_index])
+        elseif argument == "--device"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --device")
+            settings = updated_settings(settings; device = parse_device(args[argument_index]))
         elseif argument == "--epochs"
             argument_index += 1
             argument_index <= length(args) || error("missing value for --epochs")
@@ -174,12 +191,20 @@ function main(args)
             argument_index += 1
             argument_index <= length(args) || error("missing value for --checkpoint-every-steps")
             settings = updated_settings(settings; checkpoint_every_steps = parse(Int, args[argument_index]))
+        elseif argument == "--max-step-checkpoints"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --max-step-checkpoints")
+            settings = updated_settings(settings; max_step_checkpoints = parse(Int, args[argument_index]))
+        elseif argument == "--max-epoch-checkpoints"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --max-epoch-checkpoints")
+            settings = updated_settings(settings; max_epoch_checkpoints = parse(Int, args[argument_index]))
         elseif argument == "--reuse-tokenizer-bundle-dir"
             argument_index += 1
             argument_index <= length(args) || error("missing value for --reuse-tokenizer-bundle-dir")
             settings = updated_settings(settings; reuse_tokenizer_bundle_dir = abspath(args[argument_index]))
         else
-            error("usage: julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl [--dataset-dir DIR] [--output-dir DIR] [--epochs N] [--context-length N] [--batch-size N] [--learning-rate X] [--num-layers N] [--num-heads N] [--embedding-size N] [--ffn-hidden-size N] [--tokenizer-training-text-limit N] [--train-text-limit N] [--validation-text-limit N] [--test-text-limit N] [--validation-batch-limit N] [--test-batch-limit N] [--log-every-steps N] [--checkpoint-every-steps N] [--reuse-tokenizer-bundle-dir DIR]")
+            error("usage: julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl [--dataset-dir DIR] [--output-dir DIR] [--device auto|cpu|gpu] [--epochs N] [--context-length N] [--batch-size N] [--learning-rate X] [--num-layers N] [--num-heads N] [--embedding-size N] [--ffn-hidden-size N] [--tokenizer-training-text-limit N] [--train-text-limit N] [--validation-text-limit N] [--test-text-limit N] [--validation-batch-limit N] [--test-batch-limit N] [--log-every-steps N] [--checkpoint-every-steps N] [--max-step-checkpoints N] [--max-epoch-checkpoints N] [--reuse-tokenizer-bundle-dir DIR]")
         end
         argument_index += 1
     end
@@ -192,6 +217,8 @@ function run_tiny_chatbot_subword_demo(
     output_dir::AbstractString;
     settings::TinyChatbotSubwordSettings = TinyChatbotSubwordSettings(),
 )
+    validate_tiny_chatbot_settings(settings)
+
     training_path = joinpath(dataset_dir, "training.txt")
     validation_path = joinpath(dataset_dir, "validation.txt")
     testing_path = joinpath(dataset_dir, "testing.txt")
@@ -260,7 +287,11 @@ function run_tiny_chatbot_subword_demo(
     )
 
     Random.seed!(settings.model_seed)
-    model = instantiate(config; backend = :flux, seed = settings.model_seed)
+    model = KeemenaLM.FluxBackend.move_model_to_device(
+        instantiate(config; backend = :flux, seed = settings.model_seed);
+        device = settings.device,
+    )
+    resolved_device = KeemenaLM.FluxBackend.is_cuda_array(model.token_embedding) ? :gpu : :cpu
     trainer = KeemenaLM.Core.Trainer(
         model;
         optimizer = Flux.Adam(settings.learning_rate),
@@ -272,6 +303,8 @@ function run_tiny_chatbot_subword_demo(
             "prepared_corpus_metadata_path" => metadata_path,
             "document_separator" => settings.document_separator,
             "optimizer_name" => "Flux.Adam",
+            "requested_device" => String(settings.device),
+            "resolved_device" => String(resolved_device),
             "chat_marker_representation" => "added special tokens present literally in training text",
         ),
     )
@@ -284,6 +317,8 @@ function run_tiny_chatbot_subword_demo(
     println("prepared_dataset_dir: $(dataset_dir)")
     println("output_dir: $(output_dir)")
     println("tokenizer_bundle_dir: $(tokenizer_bundle_dir)")
+    println("requested_device: $(settings.device)")
+    println("resolved_device: $(resolved_device)")
     println(@sprintf("initial validation loss: %.4f", initial_validation_loss))
 
     epoch_metrics = Dict{String, Any}[]
@@ -350,6 +385,12 @@ function run_tiny_chatbot_subword_demo(
                     ),
                 )
                 latest_checkpoint_path = step_checkpoint_path
+                deleted_step_checkpoints = prune_matching_checkpoints!(
+                    checkpoint_dir,
+                    r"^step_.*_checkpoint\.jld2$",
+                    settings.max_step_checkpoints;
+                    keep_path = step_checkpoint_path,
+                )
                 write_progress(
                     progress_path;
                     status = "running",
@@ -367,6 +408,9 @@ function run_tiny_chatbot_subword_demo(
                     step_validation_loss,
                     step_checkpoint_path,
                 ))
+                if !isempty(deleted_step_checkpoints)
+                    println("pruned old step checkpoints: $(length(deleted_step_checkpoints))")
+                end
             end
         end
 
@@ -397,6 +441,15 @@ function run_tiny_chatbot_subword_demo(
             validation_loss,
             checkpoint_path,
         ))
+        deleted_epoch_checkpoints = prune_matching_checkpoints!(
+            checkpoint_dir,
+            r"^epoch_.*_checkpoint\.jld2$",
+            settings.max_epoch_checkpoints;
+            keep_path = checkpoint_path,
+        )
+        if !isempty(deleted_epoch_checkpoints)
+            println("pruned old epoch checkpoints: $(length(deleted_epoch_checkpoints))")
+        end
         latest_checkpoint_path = checkpoint_path
         write_progress(
             progress_path;
@@ -419,7 +472,10 @@ function run_tiny_chatbot_subword_demo(
     save_bundle(bundle_dir, bundle)
 
     reloaded_bundle = load_bundle(bundle_dir)
-    reloaded_model = instantiate(reloaded_bundle; backend = :flux)
+    reloaded_model = KeemenaLM.FluxBackend.move_model_to_device(
+        instantiate(reloaded_bundle; backend = :flux);
+        device = settings.device,
+    )
     reloaded_tokenizer = KeemenaSubwords.load_training_bundle(tokenizer_bundle_dir)
 
     prompts = tiny_chatbot_evaluation_prompts()
@@ -481,6 +537,8 @@ function run_tiny_chatbot_subword_demo(
         ),
         "model" => Dict(
             "backend" => "flux",
+            "requested_device" => String(settings.device),
+            "resolved_device" => String(resolved_device),
             "vocab_size" => config.vocab_size,
             "context_length" => config.context_length,
             "num_layers" => config.num_layers,
@@ -502,6 +560,8 @@ function run_tiny_chatbot_subword_demo(
             "test_batches_for_eval" => length(test_batches_for_eval),
             "log_every_steps" => settings.log_every_steps,
             "checkpoint_every_steps" => settings.checkpoint_every_steps,
+            "max_step_checkpoints" => settings.max_step_checkpoints,
+            "max_epoch_checkpoints" => settings.max_epoch_checkpoints,
             "train_token_stream_length" => train_stats.token_stream_length,
             "train_example_count" => train_stats.example_count,
             "validation_token_stream_length" => validation_stats.token_stream_length,
@@ -554,6 +614,31 @@ function run_tiny_chatbot_subword_demo(
     println("metrics: $(metrics_path)")
     println("samples: $(sample_path)")
     return metrics
+end
+
+function validate_tiny_chatbot_settings(settings::TinyChatbotSubwordSettings)
+    settings.device in (:auto, :cpu, :gpu) ||
+        throw(ArgumentError("device must be one of :auto, :cpu, or :gpu"))
+    settings.checkpoint_every_steps >= 0 ||
+        throw(ArgumentError("checkpoint_every_steps must be >= 0"))
+    settings.max_step_checkpoints >= 1 ||
+        throw(ArgumentError("max_step_checkpoints must be >= 1"))
+    settings.max_epoch_checkpoints >= 1 ||
+        throw(ArgumentError("max_epoch_checkpoints must be >= 1"))
+    return settings
+end
+
+function parse_device(value::AbstractString)::Symbol
+    normalized_value = lowercase(strip(value))
+    if normalized_value == "auto"
+        return :auto
+    elseif normalized_value == "cpu"
+        return :cpu
+    elseif normalized_value == "gpu"
+        return :gpu
+    else
+        throw(ArgumentError("--device must be one of auto, cpu, or gpu"))
+    end
 end
 
 function resolve_prepared_metadata_path(dataset_dir::AbstractString)::String
@@ -727,7 +812,8 @@ function mean_loss(model, batches)::Float64
     total_loss = 0.0
     for (input_batch, target_batch) in batches
         logits, _ = KeemenaLM.Core.lm_forward(model, input_batch; cache = nothing, is_training = false)
-        total_loss += Float64(KeemenaLM.Core.causal_lm_cross_entropy(logits, target_batch))
+        loss_target_batch = KeemenaLM.FluxBackend.move_like(target_batch, model.token_embedding)
+        total_loss += Float64(KeemenaLM.Core.causal_lm_cross_entropy(logits, loss_target_batch))
     end
     return total_loss / length(batches)
 end
@@ -743,6 +829,7 @@ function generate_samples(
         max_new_tokens = max_new_tokens,
         temperature = 0.0,
         seed = generation_seed,
+        stop_sequences = copy(CHAT_DECODING_STOP_SEQUENCES),
     )
 
     return [
@@ -811,6 +898,7 @@ function subword_recipe_dict(dataset_dir::AbstractString, output_dir::AbstractSt
         "dataset_dir" => abspath(dataset_dir),
         "output_dir" => abspath(output_dir),
         "backend" => "flux",
+        "device" => String(settings.device),
         "optimizer_name" => "Flux.Adam",
         "optimizer_hyperparameters" => Dict("learning_rate" => settings.learning_rate),
         "tokenizer_package" => "KeemenaSubwords.jl",
@@ -837,8 +925,48 @@ function subword_recipe_dict(dataset_dir::AbstractString, output_dir::AbstractSt
         "test_batch_limit" => settings.test_batch_limit,
         "log_every_steps" => settings.log_every_steps,
         "checkpoint_every_steps" => settings.checkpoint_every_steps,
+        "max_step_checkpoints" => settings.max_step_checkpoints,
+        "max_epoch_checkpoints" => settings.max_epoch_checkpoints,
         "document_separator" => settings.document_separator,
     )
+end
+
+function prune_matching_checkpoints!(
+    checkpoint_dir::AbstractString,
+    filename_pattern::Regex,
+    retention_limit::Int;
+    keep_path::Union{Nothing,AbstractString} = nothing,
+)::Vector{String}
+    retention_limit <= 0 && return String[]
+    isdir(checkpoint_dir) || return String[]
+
+    checkpoint_paths = String[]
+    for filename in readdir(checkpoint_dir)
+        occursin(filename_pattern, filename) || continue
+        checkpoint_path = joinpath(checkpoint_dir, filename)
+        isfile(checkpoint_path) || continue
+        push!(checkpoint_paths, checkpoint_path)
+    end
+
+    length(checkpoint_paths) <= retention_limit && return String[]
+
+    keep_absolute_path = keep_path === nothing ? nothing : abspath(keep_path)
+    sort!(checkpoint_paths; by = checkpoint_path -> stat(checkpoint_path).mtime)
+
+    deleted_paths = String[]
+    delete_count = length(checkpoint_paths) - retention_limit
+    for checkpoint_path in checkpoint_paths
+        delete_count <= 0 && break
+        if keep_absolute_path !== nothing && abspath(checkpoint_path) == keep_absolute_path
+            continue
+        end
+
+        rm(checkpoint_path; force = true)
+        push!(deleted_paths, checkpoint_path)
+        delete_count -= 1
+    end
+
+    return deleted_paths
 end
 
 function write_progress(
@@ -868,6 +996,21 @@ function write_json(path::AbstractString, value)
     return path
 end
 
+function command_allows_gpu_device(args)::Bool
+    device = :auto
+    argument_index = 1
+    while argument_index <= length(args)
+        if args[argument_index] == "--device"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --device")
+            device = parse_device(args[argument_index])
+        end
+        argument_index += 1
+    end
+    return device !== :cpu
+end
+
 if abspath(PROGRAM_FILE) == @__FILE__
-    main(ARGS)
+    command_allows_gpu_device(ARGS) && KeemenaLM.FluxBackend.has_functional_cuda_gpu()
+    Base.invokelatest(main, ARGS)
 end

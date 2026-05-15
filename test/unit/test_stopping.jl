@@ -12,3 +12,13 @@ using Test
     trimmed = KeemenaLM.Core.trim_stop_sequences("reply<END>ignored", stop_sequence_config)
     @test trimmed == "reply"
 end
+
+@testset "chat stop defaults include explicit chat markers" begin
+    config = KeemenaLM.Core.chat_generation_config(KeemenaLM.GenerationConfig(stop_sequences = ["<CUSTOM>"]))
+
+    @test "<CUSTOM>" in config.stop_sequences
+    @test "<END_ASSISTANT>" in config.stop_sequences
+    @test "<CHAT_END>" in config.stop_sequences
+    @test "\nUser:" in config.stop_sequences
+    @test "\nAssistant:" in config.stop_sequences
+end
