@@ -38,8 +38,10 @@ Current interpretation:
 - the current trained baseline is a valid proof-of-concept training/export/load artifact
 - qualitative generation is still weak, domain-narrow, and not chatbot-quality
 - the corrected UltraChat GPU `v2_fixed` run reached validation loss `2.6447` and test loss `2.6688`, materially better than `v1`
-- despite the numeric improvement, `v2_fixed` still drifts off-task and repeats, so it is not chatbot-quality
-- large `v2_fixed` checkpoint/model weight artifacts were removed after inspection; see `notes/tiny_chatbot_ultrachat_subword_v2_fixed.md`
+- the assistant-only UltraChat GPU `v3_assistant_loss` run reached validation loss `2.6178` and test loss `2.6359`
+- despite the numeric improvements, both runs still drift off-task, repeat, and are not chatbot-quality
+- generated UltraChat corpora, tokenizer bundles, checkpoints, and model weights were removed after inspection to free disk space; see `notes/tiny_chatbot_ultrachat_subword_v3_assistant_loss.md`
+- the next recommended chatbot work is a cleaner short-answer SFT corpus plus a decoded data/mask audit before another long training run; see `notes/future_codex_chatbot_improvement_note.md`
 
 ## Supported Workflows
 
@@ -63,20 +65,22 @@ REPL chat from a bundle directory or official model key:
 julia --project=. examples/chat_repl.jl tiny-demo
 ```
 
-No-retraining decoding evaluation for the current UltraChat subword candidate:
+After training a future UltraChat or clean-SFT candidate, evaluate it first:
 ```bash
-julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_decoding_eval.jl
+julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_decoding_eval.jl --run-dir tmp/tiny_chatbot_clean_sft_candidate_run_v4
 ```
 
-Interactive chat with the current UltraChat subword candidate:
+Then start an interactive chat session:
 ```bash
-julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_chat_repl.jl
+julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_chat_repl.jl --run-dir tmp/tiny_chatbot_clean_sft_candidate_run_v4 --temperature 0.7 --top-k 40 --top-p 0.95 --max-new-tokens 120
 ```
+
+End the chat session by typing `/exit` or `/quit`.
 
 ## Notes
 
 - Official model keys such as `tiny-demo` are supported through local artifact registration in this repo setup. They are not a fresh-user remote download path yet.
 - Tokenizer and preprocessing objects are still supplied explicitly by the caller.
 - Lux currently supports instantiate, forward pass, shared bundle weights, and CPU generation only.
-- The current best local real-text baseline uses `Flux.Adam(0.001)` and produces a real trained demo artifact, but it is still not a strong conversational model.
-- The next recommended work is either one more bounded Adam budget extension to look for flattening, or user-facing polish/documentation around the current trained baseline before broader data/tokenizer changes.
+- The current best chatbot experiments are documented in `notes/tiny_chatbot_ultrachat_subword_v2_fixed.md` and `notes/tiny_chatbot_ultrachat_subword_v3_assistant_loss.md`, but their generated artifacts were removed and they are not strong conversational models.
+- The next recommended work is a cleaner short-answer SFT corpus and data/mask audit before another expensive GPU training run.

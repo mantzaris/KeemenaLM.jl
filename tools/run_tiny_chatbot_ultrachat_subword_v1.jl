@@ -30,6 +30,7 @@ Base.@kwdef struct TinyChatbotSubwordSettings
     model_seed::Int = 20260418
     generation_seed::Int = 20260419
     device::Symbol = :auto
+    loss_mode::Symbol = :assistant_only
     context_length::Int = 128
     batch_size::Int = 16
     epochs::Int = 2
@@ -78,6 +79,7 @@ function updated_settings(settings::TinyChatbotSubwordSettings; kwargs...)
         model_seed = get(options, :model_seed, settings.model_seed),
         generation_seed = get(options, :generation_seed, settings.generation_seed),
         device = get(options, :device, settings.device),
+        loss_mode = get(options, :loss_mode, settings.loss_mode),
         context_length = get(options, :context_length, settings.context_length),
         batch_size = get(options, :batch_size, settings.batch_size),
         epochs = get(options, :epochs, settings.epochs),
@@ -127,6 +129,10 @@ function main(args)
             argument_index += 1
             argument_index <= length(args) || error("missing value for --device")
             settings = updated_settings(settings; device = parse_device(args[argument_index]))
+        elseif argument == "--loss-mode"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --loss-mode")
+            settings = updated_settings(settings; loss_mode = parse_loss_mode(args[argument_index]))
         elseif argument == "--epochs"
             argument_index += 1
             argument_index <= length(args) || error("missing value for --epochs")
@@ -204,7 +210,7 @@ function main(args)
             argument_index <= length(args) || error("missing value for --reuse-tokenizer-bundle-dir")
             settings = updated_settings(settings; reuse_tokenizer_bundle_dir = abspath(args[argument_index]))
         else
-            error("usage: julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl [--dataset-dir DIR] [--output-dir DIR] [--device auto|cpu|gpu] [--epochs N] [--context-length N] [--batch-size N] [--learning-rate X] [--num-layers N] [--num-heads N] [--embedding-size N] [--ffn-hidden-size N] [--tokenizer-training-text-limit N] [--train-text-limit N] [--validation-text-limit N] [--test-text-limit N] [--validation-batch-limit N] [--test-batch-limit N] [--log-every-steps N] [--checkpoint-every-steps N] [--max-step-checkpoints N] [--max-epoch-checkpoints N] [--reuse-tokenizer-bundle-dir DIR]")
+            error("usage: julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl [--dataset-dir DIR] [--output-dir DIR] [--device auto|cpu|gpu] [--loss-mode assistant_only|all_tokens] [--epochs N] [--context-length N] [--batch-size N] [--learning-rate X] [--num-layers N] [--num-heads N] [--embedding-size N] [--ffn-hidden-size N] [--tokenizer-training-text-limit N] [--train-text-limit N] [--validation-text-limit N] [--test-text-limit N] [--validation-batch-limit N] [--test-batch-limit N] [--log-every-steps N] [--checkpoint-every-steps N] [--max-step-checkpoints N] [--max-epoch-checkpoints N] [--reuse-tokenizer-bundle-dir DIR]")
         end
         argument_index += 1
     end
@@ -261,6 +267,8 @@ function run_tiny_chatbot_subword_demo(
         context_length = settings.context_length,
         batch_size = settings.batch_size,
         document_separator = settings.document_separator,
+        loss_mode = settings.loss_mode,
+        chat_special_tokens = settings.chat_special_tokens,
     )
     validation_batches, validation_stats = build_subword_lm_batches(
         split_texts.validation,
@@ -268,6 +276,8 @@ function run_tiny_chatbot_subword_demo(
         context_length = settings.context_length,
         batch_size = settings.batch_size,
         document_separator = settings.document_separator,
+        loss_mode = settings.loss_mode,
+        chat_special_tokens = settings.chat_special_tokens,
     )
     test_batches, test_stats = build_subword_lm_batches(
         split_texts.testing,
@@ -275,6 +285,8 @@ function run_tiny_chatbot_subword_demo(
         context_length = settings.context_length,
         batch_size = settings.batch_size,
         document_separator = settings.document_separator,
+        loss_mode = settings.loss_mode,
+        chat_special_tokens = settings.chat_special_tokens,
     )
 
     config = GPT2Config(
@@ -305,6 +317,7 @@ function run_tiny_chatbot_subword_demo(
             "optimizer_name" => "Flux.Adam",
             "requested_device" => String(settings.device),
             "resolved_device" => String(resolved_device),
+            "loss_mode" => String(settings.loss_mode),
             "chat_marker_representation" => "added special tokens present literally in training text",
         ),
     )
@@ -319,6 +332,7 @@ function run_tiny_chatbot_subword_demo(
     println("tokenizer_bundle_dir: $(tokenizer_bundle_dir)")
     println("requested_device: $(settings.device)")
     println("resolved_device: $(resolved_device)")
+    println("loss_mode: $(settings.loss_mode)")
     println(@sprintf("initial validation loss: %.4f", initial_validation_loss))
 
     epoch_metrics = Dict{String, Any}[]
@@ -335,8 +349,8 @@ function run_tiny_chatbot_subword_demo(
     )
     for epoch in 1:settings.epochs
         epoch_losses = Float64[]
-        for (input_batch, target_batch) in train_batches
-            step_result = KeemenaLM.Core.train_step!(trainer, input_batch, target_batch)
+        for (input_batch, target_batch, loss_mask_batch) in train_batches
+            step_result = KeemenaLM.Core.train_step!(trainer, input_batch, target_batch, loss_mask_batch)
             push!(epoch_losses, step_result.loss)
 
             if settings.log_every_steps > 0 && trainer.step % settings.log_every_steps == 0
@@ -553,6 +567,10 @@ function run_tiny_chatbot_subword_demo(
             "batch_size" => settings.batch_size,
             "epochs" => settings.epochs,
             "learning_rate" => settings.learning_rate,
+            "loss_mode" => String(settings.loss_mode),
+            "loss_mode_note" => settings.loss_mode === :assistant_only ?
+                "Loss is computed only on assistant response and chat-end target tokens; user/prompt tokens are context only." :
+                "Loss is computed on all next-token targets.",
             "train_batches" => length(train_batches),
             "validation_batches" => length(validation_batches),
             "test_batches" => length(test_batches),
@@ -563,11 +581,17 @@ function run_tiny_chatbot_subword_demo(
             "max_step_checkpoints" => settings.max_step_checkpoints,
             "max_epoch_checkpoints" => settings.max_epoch_checkpoints,
             "train_token_stream_length" => train_stats.token_stream_length,
+            "train_candidate_example_count" => train_stats.candidate_example_count,
             "train_example_count" => train_stats.example_count,
+            "train_loss_target_count" => train_stats.loss_target_count,
             "validation_token_stream_length" => validation_stats.token_stream_length,
+            "validation_candidate_example_count" => validation_stats.candidate_example_count,
             "validation_example_count" => validation_stats.example_count,
+            "validation_loss_target_count" => validation_stats.loss_target_count,
             "test_token_stream_length" => test_stats.token_stream_length,
+            "test_candidate_example_count" => test_stats.candidate_example_count,
             "test_example_count" => test_stats.example_count,
+            "test_loss_target_count" => test_stats.loss_target_count,
             "final_step" => trainer.step,
             "final_epoch" => trainer.epoch,
             "initial_validation_loss" => initial_validation_loss,
@@ -619,6 +643,8 @@ end
 function validate_tiny_chatbot_settings(settings::TinyChatbotSubwordSettings)
     settings.device in (:auto, :cpu, :gpu) ||
         throw(ArgumentError("device must be one of :auto, :cpu, or :gpu"))
+    settings.loss_mode in (:assistant_only, :all_tokens) ||
+        throw(ArgumentError("loss_mode must be one of :assistant_only or :all_tokens"))
     settings.checkpoint_every_steps >= 0 ||
         throw(ArgumentError("checkpoint_every_steps must be >= 0"))
     settings.max_step_checkpoints >= 1 ||
@@ -638,6 +664,17 @@ function parse_device(value::AbstractString)::Symbol
         return :gpu
     else
         throw(ArgumentError("--device must be one of auto, cpu, or gpu"))
+    end
+end
+
+function parse_loss_mode(value::AbstractString)::Symbol
+    normalized_value = lowercase(strip(value))
+    if normalized_value in ("assistant_only", "assistant-only", "assistant")
+        return :assistant_only
+    elseif normalized_value in ("all_tokens", "all-tokens", "all")
+        return :all_tokens
+    else
+        throw(ArgumentError("--loss-mode must be one of assistant_only or all_tokens"))
     end
 end
 
@@ -716,36 +753,134 @@ function build_subword_lm_batches(
     context_length::Int,
     batch_size::Int,
     document_separator::AbstractString,
+    loss_mode::Symbol,
+    chat_special_tokens::Dict{Symbol,String},
 )
-    corpus = join(texts, document_separator)
-    token_ids = KeemenaSubwords.encode(tokenizer, corpus; add_special_tokens = false)
+    token_ids, token_loss_mask = build_training_token_stream(
+        texts,
+        tokenizer;
+        document_separator = document_separator,
+        loss_mode = loss_mode,
+        chat_special_tokens = chat_special_tokens,
+    )
     length(token_ids) > context_length ||
         throw(ArgumentError("dataset split is too small for context_length=$(context_length)"))
 
-    example_count = fld(length(token_ids) - 1, context_length)
-    example_count > 0 || throw(ArgumentError("dataset split did not yield any LM examples"))
+    candidate_example_count = fld(length(token_ids) - 1, context_length)
+    candidate_example_count > 0 || throw(ArgumentError("dataset split did not yield any LM examples"))
 
-    batches = Tuple{Matrix{Int32}, Matrix{Int32}}[]
-    for batch_start in 1:batch_size:example_count
-        batch_end = min(batch_start + batch_size - 1, example_count)
-        actual_batch_size = batch_end - batch_start + 1
-        input_batch = Matrix{Int32}(undef, context_length, actual_batch_size)
-        target_batch = Matrix{Int32}(undef, context_length, actual_batch_size)
+    batches = Tuple{Matrix{Int32}, Matrix{Int32}, Matrix{Float32}}[]
+    input_batch = Matrix{Int32}(undef, context_length, batch_size)
+    target_batch = Matrix{Int32}(undef, context_length, batch_size)
+    loss_mask_batch = Matrix{Float32}(undef, context_length, batch_size)
+    batch_column = 0
+    example_count = 0
+    loss_target_count = 0
 
-        for (column_index, example_index) in enumerate(batch_start:batch_end)
-            offset = (example_index - 1) * context_length
-            input_batch[:, column_index] = Int32.(token_ids[(offset + 1):(offset + context_length)])
-            target_batch[:, column_index] = Int32.(token_ids[(offset + 2):(offset + context_length + 1)])
+    for example_index in 1:candidate_example_count
+        offset = (example_index - 1) * context_length
+        target_loss_mask = Float32.(token_loss_mask[(offset + 2):(offset + context_length + 1)])
+        target_loss_count = sum(target_loss_mask)
+        target_loss_count > 0 || continue
+
+        batch_column += 1
+        input_batch[:, batch_column] = Int32.(token_ids[(offset + 1):(offset + context_length)])
+        target_batch[:, batch_column] = Int32.(token_ids[(offset + 2):(offset + context_length + 1)])
+        loss_mask_batch[:, batch_column] = target_loss_mask
+        example_count += 1
+        loss_target_count += Int(target_loss_count)
+
+        if batch_column == batch_size
+            push!(batches, (copy(input_batch), copy(target_batch), copy(loss_mask_batch)))
+            batch_column = 0
         end
-
-        push!(batches, (input_batch, target_batch))
     end
+
+    if batch_column > 0
+        push!(
+            batches,
+            (
+                copy(input_batch[:, 1:batch_column]),
+                copy(target_batch[:, 1:batch_column]),
+                copy(loss_mask_batch[:, 1:batch_column]),
+            ),
+        )
+    end
+
+    example_count > 0 || throw(ArgumentError("dataset split did not yield any LM examples with loss targets"))
 
     stats = (
         token_stream_length = length(token_ids),
+        candidate_example_count = candidate_example_count,
         example_count = example_count,
+        loss_target_count = loss_target_count,
     )
     return batches, stats
+end
+
+function build_training_token_stream(
+    texts::Vector{String},
+    tokenizer::KeemenaSubwords.AbstractSubwordTokenizer;
+    document_separator::AbstractString,
+    loss_mode::Symbol,
+    chat_special_tokens::Dict{Symbol,String},
+)
+    token_ids = Int[]
+    token_loss_mask = Float32[]
+    separator_token_ids = KeemenaSubwords.encode(tokenizer, document_separator; add_special_tokens = false)
+
+    for (text_index, text) in enumerate(texts)
+        text_token_ids = KeemenaSubwords.encode(tokenizer, text; add_special_tokens = false)
+        text_loss_mask = token_loss_mask_for_text(
+            text_token_ids,
+            tokenizer;
+            loss_mode = loss_mode,
+            chat_special_tokens = chat_special_tokens,
+        )
+        append!(token_ids, text_token_ids)
+        append!(token_loss_mask, text_loss_mask)
+
+        if text_index < length(texts) && !isempty(separator_token_ids)
+            append!(token_ids, separator_token_ids)
+            append!(token_loss_mask, zeros(Float32, length(separator_token_ids)))
+        end
+    end
+
+    return token_ids, token_loss_mask
+end
+
+function token_loss_mask_for_text(
+    token_ids::Vector{Int},
+    tokenizer::KeemenaSubwords.AbstractSubwordTokenizer;
+    loss_mode::Symbol,
+    chat_special_tokens::Dict{Symbol,String},
+)::Vector{Float32}
+    if loss_mode === :all_tokens
+        return ones(Float32, length(token_ids))
+    elseif loss_mode !== :assistant_only
+        throw(ArgumentError("unsupported loss_mode $(loss_mode); expected :assistant_only or :all_tokens"))
+    end
+
+    assistant_token_id = KeemenaSubwords.token_to_id(tokenizer, chat_special_tokens[:assistant])
+    user_token_id = KeemenaSubwords.token_to_id(tokenizer, chat_special_tokens[:user])
+    chat_end_token_id = KeemenaSubwords.token_to_id(tokenizer, chat_special_tokens[:chat_end])
+
+    loss_mask = zeros(Float32, length(token_ids))
+    in_assistant_turn = false
+    for (index, token_id) in enumerate(token_ids)
+        if token_id == assistant_token_id
+            in_assistant_turn = true
+            loss_mask[index] = 0.0f0
+        elseif token_id == user_token_id
+            in_assistant_turn = false
+            loss_mask[index] = 0.0f0
+        elseif in_assistant_turn
+            loss_mask[index] = 1.0f0
+            token_id == chat_end_token_id && (in_assistant_turn = false)
+        end
+    end
+
+    return loss_mask
 end
 
 function limit_batches(batches, limit::Int)
@@ -810,10 +945,11 @@ end
 
 function mean_loss(model, batches)::Float64
     total_loss = 0.0
-    for (input_batch, target_batch) in batches
+    for (input_batch, target_batch, loss_mask_batch) in batches
         logits, _ = KeemenaLM.Core.lm_forward(model, input_batch; cache = nothing, is_training = false)
         loss_target_batch = KeemenaLM.FluxBackend.move_like(target_batch, model.token_embedding)
-        total_loss += Float64(KeemenaLM.Core.causal_lm_cross_entropy(logits, loss_target_batch))
+        loss_weights = KeemenaLM.FluxBackend.move_like(loss_mask_batch, model.token_embedding)
+        total_loss += Float64(KeemenaLM.Core.causal_lm_cross_entropy(logits, loss_target_batch, loss_weights))
     end
     return total_loss / length(batches)
 end
@@ -899,6 +1035,7 @@ function subword_recipe_dict(dataset_dir::AbstractString, output_dir::AbstractSt
         "output_dir" => abspath(output_dir),
         "backend" => "flux",
         "device" => String(settings.device),
+        "loss_mode" => String(settings.loss_mode),
         "optimizer_name" => "Flux.Adam",
         "optimizer_hyperparameters" => Dict("learning_rate" => settings.learning_rate),
         "tokenizer_package" => "KeemenaSubwords.jl",
