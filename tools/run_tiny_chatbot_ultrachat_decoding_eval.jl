@@ -27,6 +27,7 @@ Base.@kwdef struct DecodingEvalSettings
     sampling_temperature::Float64 = 0.7
     sampling_top_k::Int = 40
     sampling_top_p::Float64 = 0.95
+    device::Symbol = :cpu
 end
 
 KeemenaLM.Core.tokenizer_encode(tokenizer::KeemenaSubwords.AbstractSubwordTokenizer, text::AbstractString) =
@@ -45,6 +46,7 @@ function main(args)
     println("run_dir: ", payload["run_dir"])
     println("bundle_dir: ", payload["bundle_dir"])
     println("tokenizer_bundle_dir: ", payload["tokenizer_bundle_dir"])
+    println("device: ", payload["device"])
     println("prompts: ", length(payload["prompts"]))
     println("text_report: ", text_path)
     println("json_report: ", json_path)
@@ -63,6 +65,7 @@ function parse_args(args)::DecodingEvalSettings
     sampling_temperature = 0.7
     sampling_top_k = 40
     sampling_top_p = 0.95
+    device = :cpu
 
     argument_index = 1
     while argument_index <= length(args)
@@ -118,6 +121,10 @@ function parse_args(args)::DecodingEvalSettings
             argument_index += 1
             argument_index <= length(args) || error("missing value for --sampling-top-p")
             sampling_top_p = parse(Float64, args[argument_index])
+        elseif argument == "--device"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --device")
+            device = parse_device(args[argument_index])
         else
             error("unknown argument $(argument). Run with --help for usage.")
         end
@@ -144,7 +151,15 @@ function parse_args(args)::DecodingEvalSettings
         sampling_temperature = sampling_temperature,
         sampling_top_k = sampling_top_k,
         sampling_top_p = sampling_top_p,
+        device = device,
     )
+end
+
+function parse_device(argument::AbstractString)::Symbol
+    device = Symbol(lowercase(argument))
+    device in (:cpu, :gpu, :auto) ||
+        throw(ArgumentError("--device must be cpu, gpu, or auto"))
+    return device
 end
 
 function print_usage()
@@ -164,6 +179,7 @@ Options:
   --sampling-temperature X      Sampling temperature. Defaults to 0.7.
   --sampling-top-k N            Sampling top-k. Defaults to 40.
   --sampling-top-p X            Sampling top-p. Defaults to 0.95.
+  --device cpu|gpu|auto         Inference device. Defaults to cpu.
 """)
 end
 
@@ -179,6 +195,7 @@ function run_decoding_eval(settings::DecodingEvalSettings)
     isfile(prompts_path) || throw(ArgumentError("prompts file does not exist: $(prompts_path)"))
 
     model = load_model(bundle_dir; backend = :flux)
+    model = KeemenaLM.FluxBackend.move_model_to_device(model; device = settings.device)
     tokenizer = KeemenaSubwords.load_training_bundle(tokenizer_bundle_dir)
     prompts = read_prompts(prompts_path)
     if settings.prompt_limit > 0
@@ -191,6 +208,7 @@ function run_decoding_eval(settings::DecodingEvalSettings)
         "run_dir" => run_dir,
         "bundle_dir" => bundle_dir,
         "tokenizer_bundle_dir" => tokenizer_bundle_dir,
+        "device" => String(settings.device),
         "prompts_path" => prompts_path,
         "prompts" => prompts,
         "stop_sequences" => CHAT_DECODING_STOP_SEQUENCES,
@@ -352,6 +370,7 @@ function write_text_report(path::AbstractString, payload)
         println(io, "run_dir: ", payload["run_dir"])
         println(io, "bundle_dir: ", payload["bundle_dir"])
         println(io, "tokenizer_bundle_dir: ", payload["tokenizer_bundle_dir"])
+        println(io, "device: ", payload["device"])
         println(io, "prompts_path: ", payload["prompts_path"])
         println(io, "stop_sequences: ", repr(payload["stop_sequences"]))
         println(io)
@@ -385,6 +404,23 @@ function write_json(path::AbstractString, payload)
     return path
 end
 
+function command_allows_gpu_device(args)::Bool
+    device = :cpu
+    argument_index = 1
+    while argument_index <= length(args)
+        if args[argument_index] == "--device"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --device")
+            device = parse_device(args[argument_index])
+        end
+        argument_index += 1
+    end
+    return device !== :cpu
+end
+
 if abspath(PROGRAM_FILE) == @__FILE__
-    main(ARGS)
+    if !any(argument -> argument in ("--help", "-h"), ARGS)
+        command_allows_gpu_device(ARGS) && KeemenaLM.FluxBackend.has_functional_cuda_gpu()
+    end
+    Base.invokelatest(main, ARGS)
 end

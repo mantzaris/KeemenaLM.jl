@@ -15,6 +15,7 @@ Base.@kwdef struct ChatReplSettings
     top_p::Float64 = 0.95
     seed::Union{Nothing,Int} = 20260419
     system_prompt::String = ""
+    device::Symbol = :cpu
 end
 
 KeemenaLM.Core.tokenizer_encode(tokenizer::KeemenaSubwords.AbstractSubwordTokenizer, text::AbstractString) =
@@ -40,6 +41,7 @@ function parse_args(args)::ChatReplSettings
     top_p = 0.95
     seed = 20260419
     system_prompt = ""
+    device = :cpu
 
     argument_index = 1
     while argument_index <= length(args)
@@ -85,6 +87,10 @@ function parse_args(args)::ChatReplSettings
             argument_index += 1
             argument_index <= length(args) || error("missing value for --system-prompt")
             system_prompt = String(args[argument_index])
+        elseif argument == "--device"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --device")
+            device = parse_device(args[argument_index])
         else
             error("unknown argument $(argument). Run with --help for usage.")
         end
@@ -107,7 +113,15 @@ function parse_args(args)::ChatReplSettings
         top_p = top_p,
         seed = seed,
         system_prompt = system_prompt,
+        device = device,
     )
+end
+
+function parse_device(argument::AbstractString)::Symbol
+    device = Symbol(lowercase(argument))
+    device in (:cpu, :gpu, :auto) ||
+        throw(ArgumentError("--device must be cpu, gpu, or auto"))
+    return device
 end
 
 function print_usage()
@@ -125,6 +139,7 @@ Options:
   --seed N                      Deterministic sampling seed. Defaults to 20260419.
   --no-seed                     Use a time-based sampling seed.
   --system-prompt TEXT          Optional system prompt. Empty by default because the corpus did not train on system turns.
+  --device cpu|gpu|auto         Inference device. Defaults to cpu.
 """)
 end
 
@@ -137,6 +152,7 @@ function run_chat_repl(settings::ChatReplSettings)
     isdir(tokenizer_bundle_dir) || throw(ArgumentError("tokenizer bundle directory does not exist: $(tokenizer_bundle_dir)"))
 
     model = load_model(bundle_dir; backend = :flux)
+    model = KeemenaLM.FluxBackend.move_model_to_device(model; device = settings.device)
     tokenizer = KeemenaSubwords.load_training_bundle(tokenizer_bundle_dir)
     generation_config = GenerationConfig(
         max_new_tokens = settings.max_new_tokens,
@@ -155,11 +171,29 @@ function run_chat_repl(settings::ChatReplSettings)
 
     println("Loaded UltraChat candidate bundle: ", bundle_dir)
     println("Loaded tokenizer bundle: ", tokenizer_bundle_dir)
+    println("Inference device: ", settings.device)
     println("Type /exit or /quit to leave the REPL.")
     chat_repl(session)
     return session
 end
 
+function command_allows_gpu_device(args)::Bool
+    device = :cpu
+    argument_index = 1
+    while argument_index <= length(args)
+        if args[argument_index] == "--device"
+            argument_index += 1
+            argument_index <= length(args) || error("missing value for --device")
+            device = parse_device(args[argument_index])
+        end
+        argument_index += 1
+    end
+    return device !== :cpu
+end
+
 if abspath(PROGRAM_FILE) == @__FILE__
-    main(ARGS)
+    if !any(argument -> argument in ("--help", "-h"), ARGS)
+        command_allows_gpu_device(ARGS) && KeemenaLM.FluxBackend.has_functional_cuda_gpu()
+    end
+    Base.invokelatest(main, ARGS)
 end
