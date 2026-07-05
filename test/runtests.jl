@@ -8,6 +8,7 @@ using KeemenaLM
     include("unit/test_bundle_io.jl")
     include("unit/test_sampling.jl")
     include("unit/test_stopping.jl")
+    include("unit/test_behavior_gate.jl")
     include("unit/test_loss.jl")
 
     include("integration/test_forward_flux.jl")

@@ -34,7 +34,7 @@ The goal was to reduce fake user turns and improve direct assistant behavior.
 Training command used:
 
 ```bash
-CUDA_VISIBLE_DEVICES=GPU-10d1f16f-9e79-08bb-b2ba-3353c04422cf julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl --dataset-dir tmp/tiny_chatbot_ultrachat_corpus_v1 --output-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v3_assistant_loss --device gpu --loss-mode assistant_only --context-length 128 --num-layers 8 --num-heads 8 --embedding-size 512 --ffn-hidden-size 2048 --batch-size 16 --epochs 2 --learning-rate 0.0003 --reuse-tokenizer-bundle-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/tokenizer_bundle --train-text-limit 100000 --validation-text-limit 1000 --test-text-limit 1000 --checkpoint-every-steps 5000 --max-step-checkpoints 2 --max-epoch-checkpoints 2
+CUDA_VISIBLE_DEVICES=GPU-10d1f16f-9e79-08bb-b2ba-3353c04422cf julia --project=tools/subword_real_text retired historical UltraChat runner --dataset-dir tmp/tiny_chatbot_ultrachat_corpus_v1 --output-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v3_assistant_loss --device gpu --loss-mode assistant_only --context-length 128 --num-layers 8 --num-heads 8 --embedding-size 512 --ffn-hidden-size 2048 --batch-size 16 --epochs 2 --learning-rate 0.0003 --reuse-tokenizer-bundle-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/tokenizer_bundle --train-text-limit 100000 --validation-text-limit 1000 --test-text-limit 1000 --checkpoint-every-steps 5000 --max-step-checkpoints 2 --max-epoch-checkpoints 2
 ```
 
 ## Results

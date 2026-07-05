@@ -12,6 +12,7 @@ function copy_directory_contents(source_directory::AbstractString, destination_d
 end
 
 model_key = isempty(ARGS) ? "tiny-demo" : ARGS[1]
+model_key == "tiny-demo" || error("tools/build_public_model_artifact.jl only builds the tiny-demo toy artifact. Use tools/package_tiny_chatbot_v9_release_artifact.sh for the v9 chatbot artifact.")
 specification = KeemenaLM.Core.official_model_spec(model_key)
 artifacts_toml = KeemenaLM.Core.default_artifacts_toml()
 

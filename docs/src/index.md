@@ -1,38 +1,51 @@
 # KeemenaLM.jl
 
-KeemenaLM.jl is a Julia proof-of-concept language-model package for a small GPT-2 style decoder-only model.
+KeemenaLM.jl is a Julia proof-of-concept for training and running small GPT-style
+decoder language models from scratch. The package includes model configuration,
+Flux and Lux backends, bundle IO, checkpointing, generation, chat helpers, and a
+simple behavior-gate evaluator.
 
-## Supported v0.1 state
+The active research focus is the scratch-chatbot pipeline used for the broad v9
+336M baseline. That baseline demonstrates that the Julia training, export,
+tokenizer sidecar, behavior evaluation, and REPL path work at a larger scale, but
+it does not produce a reliable assistant.
 
-- Flux inference on CPU
-- Flux training path, including checkpoints and NVIDIA/CUDA support
-- portable bundles and bundle load/save
-- REPL chat from a saved bundle
-- official demo model flow through local artifact registration
-- Lux inference on CPU using the shared portable weight schema
+## Current Supported State
 
-## Not yet supported
+- Flux instantiate, forward pass, generation, and training
+- NVIDIA/CUDA training through the Flux path
+- Lux instantiate, forward pass, shared weights, and CPU generation
+- portable model bundles with JLD2 weights
+- resumable checkpoints
+- local official-model artifact registration
+- chatbot behavior scoring helpers
+- one-turn REPL for saved chatbot bundles
 
-- Lux training parity
-- tokenizer/preprocessing persistence inside bundles
-- remote official model hosting or download integration
+## Current Baseline
 
-## Current project progress
+The strongest current scratch-chatbot run is the v9 broad 336M baseline:
 
-- The original staged proof-of-concept roadmap is complete through the planned v0.1 scope.
-- The synthetic CFG benchmark phase completed successfully and established the basic learning pattern for the tiny model.
-- Controlled sweeps showed that complexity hurts learning materially, extra epochs help only a little at the degraded point, and width helped more than depth under the fixed synthetic recipe.
-- Prepared-corpus real-text sweeps identified `Flux.Adam(0.001)` as a much better training path than plain gradient descent for the current tiny model.
-- A first trained demo baseline was completed on the prepared better local real-text corpus at `context_length = 48`, `embedding_size = 128`, `ffn_hidden_size = 256`, and `epochs = 38`.
-- Current real-text quality is still weak and domain-narrow, so this baseline is best understood as a proof-of-concept trained artifact rather than a good chatbot.
+- `336,488,448` estimated parameters
+- `24` layers, `16` heads, `1024` embedding, `4096` FFN
+- context length `512`
+- about `1.5B` pretraining characters
+- `39,584` SFT examples
+- final test losses: `pretrain=2.0753`, `sft=3.1421`
+- behavior gate: `17/22`
 
-## Immediate next focus
+The model still fails basic common sense, arithmetic, factual grounding,
+unknown-private-fact handling, and repetition checks. Treat it as a research
+baseline, not a usable chatbot.
 
-- keep the architecture stable
-- either run one more bounded Adam budget extension to check for flattening, or use the current trained baseline for user-facing demo/documentation work
-- treat broader corpus/tokenizer changes as the next quality-improvement branch after the current baseline is fully documented and evaluated
+See [Current Chatbot Baseline](chatbot.md) for commands and interpretation.
 
-## API
+## Next Research Direction
 
-See the generated API reference page for exported types and functions:
-- [API Reference](api.md)
+The next useful work is not a blind larger run. The current diagnosis is that the
+project is data- and evaluation-limited. The recommended direction is a v10 data
+and behavior-eval pass, then a short continuation or smoke run to verify that the
+new data moves the known failures before spending another multi-day training run.
+
+## Package API
+
+See [API Reference](api.md) for exported package types and functions.

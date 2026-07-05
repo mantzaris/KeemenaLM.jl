@@ -19,11 +19,9 @@ Important changes made before and during this stage:
   - `\nUser:`
   - `\nAssistant:`
   - `\nSystem:`
-- Added `tools/run_tiny_chatbot_ultrachat_decoding_eval.jl` for no-retraining
-  decoding comparisons.
-- Added `tools/run_tiny_chatbot_ultrachat_chat_repl.jl` for interactive chat
-  with the saved UltraChat subword candidate and tokenizer.
-- Updated `tools/run_tiny_chatbot_ultrachat_subword_v1.jl` with:
+- Added a no-retraining decoding comparison tool during this historical run; the old standalone script was later removed from the active tool surface.
+- Added an interactive chat tester during this historical run; the old standalone script was later removed from the active tool surface.
+- Updated `retired historical UltraChat runner` with:
   - `--device auto|cpu|gpu`
   - GPU initialization before `main`
   - sparse checkpoint defaults
@@ -49,7 +47,7 @@ Verification before the final run:
 The final corrected run used the 32GB RTX 5000 Ada GPU by UUID:
 
 ```bash
-CUDA_VISIBLE_DEVICES=GPU-10d1f16f-9e79-08bb-b2ba-3353c04422cf julia --project=tools/subword_real_text tools/run_tiny_chatbot_ultrachat_subword_v1.jl --dataset-dir tmp/tiny_chatbot_ultrachat_corpus_v1 --output-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v2_fixed --device gpu --context-length 128 --num-layers 8 --num-heads 8 --embedding-size 512 --ffn-hidden-size 2048 --batch-size 16 --epochs 2 --learning-rate 0.0003 --reuse-tokenizer-bundle-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/tokenizer_bundle --train-text-limit 100000 --validation-text-limit 1000 --test-text-limit 1000 --checkpoint-every-steps 5000 --max-step-checkpoints 2 --max-epoch-checkpoints 2
+CUDA_VISIBLE_DEVICES=GPU-10d1f16f-9e79-08bb-b2ba-3353c04422cf julia --project=tools/subword_real_text retired historical UltraChat runner --dataset-dir tmp/tiny_chatbot_ultrachat_corpus_v1 --output-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v2_fixed --device gpu --context-length 128 --num-layers 8 --num-heads 8 --embedding-size 512 --ffn-hidden-size 2048 --batch-size 16 --epochs 2 --learning-rate 0.0003 --reuse-tokenizer-bundle-dir tmp/tiny_chatbot_ultrachat_subword_candidate_run_v1/tokenizer_bundle --train-text-limit 100000 --validation-text-limit 1000 --test-text-limit 1000 --checkpoint-every-steps 5000 --max-step-checkpoints 2 --max-epoch-checkpoints 2
 ```
 
 ## Training Recipe

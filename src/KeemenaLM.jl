@@ -15,6 +15,9 @@ export
     available_models,
     download_model,
     resolve_bundle,
+    download_model_artifact,
+    resolve_model_artifact,
+    resolve_tokenizer_bundle,
     save_bundle,
     load_bundle,
     load_model,
@@ -25,6 +28,9 @@ export
     ChatSession,
     chat!,
     chat_repl,
+    chatbot_behavior_cases,
+    score_chatbot_behavior_completion,
+    score_chatbot_behavior_suite,
     instantiate
 
 function instantiate(config_or_bundle; backend::Symbol = :flux, keyword_arguments...)

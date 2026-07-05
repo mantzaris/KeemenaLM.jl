@@ -23,12 +23,18 @@ export
     ChatSession,
     chat!,
     chat_repl,
+    chatbot_behavior_cases,
+    score_chatbot_behavior_completion,
+    score_chatbot_behavior_suite,
     BUNDLE_SCHEMA_VERSION,
     BundleManifest,
     Bundle,
     available_models,
     download_model,
     resolve_bundle,
+    download_model_artifact,
+    resolve_model_artifact,
+    resolve_tokenizer_bundle,
     save_weights_jld2,
     load_weights_jld2,
     save_bundle,
@@ -52,6 +58,7 @@ include("generation/sampling.jl")
 include("generation/stopping.jl")
 include("generation/generate.jl")
 include("generation/chat.jl")
+include("generation/behavior_gate.jl")
 
 include("io/bundle_schema.jl")
 include("io/model_sources.jl")

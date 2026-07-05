@@ -30,4 +30,6 @@ JuliaLocalPreferences.toml
 bundles/
 artifacts/bundles/
 tmp/
+tmp/release_artifacts/
+release_artifacts/
 scratch/

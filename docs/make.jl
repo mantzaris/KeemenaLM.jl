@@ -22,6 +22,8 @@ makedocs(
     checkdocs = :exports,
     pages = [
         "Home" => "index.md",
+        "Current Chatbot" => "chatbot.md",
+        "Data And Artifacts" => "artifacts.md",
         "API" => "api.md",
     ],
 )
