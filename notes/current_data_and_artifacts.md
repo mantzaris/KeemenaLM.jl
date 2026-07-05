@@ -62,16 +62,17 @@ Temporary staging is removed by default to avoid leaving another full copy of
 the model on disk. Set `KEEP_STAGING=1` only when you need to inspect the staged
 layout.
 
-After uploading the tarball, bind it into `artifacts/Artifacts.toml`:
+The `v0.1.0` release tarball is already bound in `artifacts/Artifacts.toml`.
+For a future replacement, bind the uploaded tarball with:
 
 ```bash
-ARTIFACT_URL=https://example.invalid/keemenalm-tiny-chatbot-v9-broad-336m.tar.gz \
+ARTIFACT_URL=https://github.com/mantzaris/KeemenaLM.jl/releases/download/vNEXT/keemenalm-tiny-chatbot-v9-broad-336m.tar.gz \
 UPDATE_ARTIFACTS_TOML=1 \
 tools/package_tiny_chatbot_v9_release_artifact.sh
 ```
 
-Use the real release URL. Fresh clones can then fetch the weights through Julia
-artifacts instead of carrying weights in git.
+Fresh clones fetch the weights through Julia artifacts instead of carrying
+weights in git.
 
 ## Use The Bound Artifact
 

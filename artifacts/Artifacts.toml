@@ -1,2 +1,10 @@
 [keemenalm_tiny_demo]
 git-tree-sha1 = "6ea8447ee183e84e6e02d2172080241e321ccd66"
+
+[keemenalm_tiny_chatbot_v9_broad_336m]
+git-tree-sha1 = "f0095f3c9ecaad9fe80215aace0ea668264ec151"
+lazy = true
+
+[[keemenalm_tiny_chatbot_v9_broad_336m.download]]
+url = "https://github.com/mantzaris/KeemenaLM.jl/releases/download/v0.1.0/keemenalm-tiny-chatbot-v9-broad-336m.tar.gz"
+sha256 = "653de352a56986c9f9afe81be86362669f5173033d1442c03dcca75d7a40ddd5"

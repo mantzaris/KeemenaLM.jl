@@ -18,7 +18,7 @@ tokenizer_dir = resolve_tokenizer_bundle("tiny-chatbot-v9-broad-336m")
 `resolve_tokenizer_bundle` returns the matching tokenizer sidecar needed by the
 chatbot tools.
 
-This works for fresh clones once the v9 release tarball URL and checksum are
+This works for fresh clones because the v9 release tarball URL and checksum are
 bound in `artifacts/Artifacts.toml`.
 
 ## Package A Release Artifact
@@ -42,10 +42,10 @@ It excludes raw training data and regenerated corpora. Temporary staging is
 removed by default so the packager does not leave another full copy of the model
 on disk.
 
-After uploading the tarball, bind it for fresh-clone downloads:
+After uploading a future tarball, bind it for fresh-clone downloads:
 
 ```bash
-ARTIFACT_URL=https://example.invalid/keemenalm-tiny-chatbot-v9-broad-336m.tar.gz \
+ARTIFACT_URL=https://github.com/mantzaris/KeemenaLM.jl/releases/download/vNEXT/keemenalm-tiny-chatbot-v9-broad-336m.tar.gz \
 UPDATE_ARTIFACTS_TOML=1 \
 tools/package_tiny_chatbot_v9_release_artifact.sh
 ```
@@ -55,7 +55,7 @@ tarball.
 
 ## Use The Artifact In Tools
 
-Once the artifact is bound, current chatbot tools can use the model key directly:
+Current chatbot tools can use the model key directly:
 
 ```bash
 julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.jl \

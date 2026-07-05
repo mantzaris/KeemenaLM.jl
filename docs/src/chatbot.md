@@ -27,7 +27,7 @@ unsafe objects, private unknowns, factual grounding, and repetition loops.
 
 ## Artifact-Backed Usage
 
-Once `tiny-chatbot-v9-broad-336m` is bound in `artifacts/Artifacts.toml`, the tools can load weights and tokenizer sidecar by key:
+The `tiny-chatbot-v9-broad-336m` artifact is bound in `artifacts/Artifacts.toml`, so the tools can load weights and tokenizer sidecar by key:
 
 ```bash
 julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.jl \
@@ -35,7 +35,7 @@ julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.j
   --device cpu
 ```
 
-Use the local `--run-dir` form below while developing before the release artifact is hosted.
+Use the local `--run-dir` form below while developing against an unpublished run.
 
 ## Behavior Evaluation
 

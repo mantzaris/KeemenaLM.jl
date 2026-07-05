@@ -128,7 +128,7 @@ because those scripts live under `tools/`.
 
 ## Get The Model Artifact
 
-Weights are not committed to git. The streamlined distribution path is a Julia artifact named `tiny-chatbot-v9-broad-336m`. Once the release tarball URL is bound in `artifacts/Artifacts.toml`, users can fetch the model bundle from Julia:
+Weights are not committed to git. The streamlined distribution path is a Julia artifact named `tiny-chatbot-v9-broad-336m`, bound to the `v0.1.0` GitHub Release asset. Users can fetch the model bundle from Julia:
 
 ```julia
 using KeemenaLM
@@ -144,7 +144,7 @@ julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.j
   --device cpu
 ```
 
-Until a hosted release URL is bound, use the retained local run under `tmp/tiny_chatbot_v9_broad_336m_run`.
+For local development on an unpublished run, use the explicit `--run-dir`, `--bundle-dir`, and `--tokenizer-bundle-dir` form below.
 
 ## Test The Current Local Model
 

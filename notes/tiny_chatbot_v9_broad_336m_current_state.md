@@ -346,12 +346,12 @@ The package contains:
 The package does not contain raw training data, regenerated corpora, optimizer states, or redundant checkpoints. Temporary staging is removed by default. After upload, bind the release URL into `artifacts/Artifacts.toml` with:
 
 ```bash
-ARTIFACT_URL=https://example.invalid/keemenalm-tiny-chatbot-v9-broad-336m.tar.gz \
+ARTIFACT_URL=https://github.com/mantzaris/KeemenaLM.jl/releases/download/vNEXT/keemenalm-tiny-chatbot-v9-broad-336m.tar.gz \
 UPDATE_ARTIFACTS_TOML=1 \
 tools/package_tiny_chatbot_v9_release_artifact.sh
 ```
 
-Fresh clones can then use `download_model("tiny-chatbot-v9-broad-336m")` and `resolve_tokenizer_bundle("tiny-chatbot-v9-broad-336m")`.
+Fresh clones can use `download_model("tiny-chatbot-v9-broad-336m")` and `resolve_tokenizer_bundle("tiny-chatbot-v9-broad-336m")`.
 
 ## Data Rebuild Script
 
