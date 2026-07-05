@@ -37,7 +37,7 @@ Base.@kwdef struct ChatReplSettings
     seed::Union{Nothing,Int} = 20260419
     system_prompt::String = ""
     stateful::Bool = false
-    device::Symbol = :cpu
+    device::Symbol = :auto
 end
 
 KeemenaLM.Core.tokenizer_encode(tokenizer::KeemenaSubwords.AbstractSubwordTokenizer, text::AbstractString) =
@@ -65,7 +65,7 @@ function parse_args(args)::ChatReplSettings
     seed = 20260419
     system_prompt = ""
     stateful = false
-    device = :cpu
+    device = :auto
 
     argument_index = 1
     while argument_index <= length(args)
@@ -173,7 +173,7 @@ Options:
   --no-seed                     Use a time-based sampling seed.
   --system-prompt TEXT          Optional system prompt. Empty by default because the corpus did not train on system turns.
   --stateful                    Keep prior turns in the prompt. Default is stateless one-turn prompts.
-  --device cpu|gpu|auto         Inference device. Defaults to cpu.
+  --device cpu|gpu|auto         Inference device. Defaults to auto.
 """)
 end
 
@@ -314,7 +314,7 @@ function v8_pretty_completion(completion::AbstractString)::String
 end
 
 function command_allows_gpu_device(args)::Bool
-    device = :cpu
+    device = :auto
     argument_index = 1
     while argument_index <= length(args)
         if args[argument_index] == "--device"

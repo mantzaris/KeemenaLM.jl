@@ -32,7 +32,7 @@ The `tiny-chatbot-v9-broad-336m` artifact is bound in `artifacts/Artifacts.toml`
 ```bash
 julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.jl \
   --model-key tiny-chatbot-v9-broad-336m \
-  --device cpu
+  --device auto
 ```
 
 Use the local `--run-dir` form below while developing against an unpublished run.
@@ -55,7 +55,7 @@ CUDA_VISIBLE_DEVICES=0 julia --project=tools/subword_real_text tools/run_tiny_ch
   --run-dir tmp/tiny_chatbot_v9_broad_336m_run \
   --bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/bundle \
   --tokenizer-bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/tokenizer_bundle \
-  --device gpu \
+  --device auto \
   --temperature 0.0 \
   --top-k 0 \
   --top-p 1.0 \
@@ -71,14 +71,14 @@ CUDA_VISIBLE_DEVICES=0 julia --project=tools/subword_real_text tools/run_tiny_ch
   --run-dir tmp/tiny_chatbot_v9_broad_336m_run \
   --bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/bundle \
   --tokenizer-bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/tokenizer_bundle \
-  --device gpu \
+  --device auto \
   --temperature 0.0 \
   --top-k 0 \
   --top-p 1.0 \
   --max-new-tokens 120
 ```
 
-Use `--device cpu` if no compatible GPU is available. Type `/exit` or `/quit`
+`--device auto` falls back to CPU if CUDA is unavailable. Type `/exit` or `/quit`
 to leave the REPL.
 
 ## Training Direction

@@ -22,7 +22,7 @@ Base.@kwdef struct V8BehaviorEvalSettings
     max_new_tokens::Int = 100
     prompt_limit::Int = 0
     seed::Int = 20260615
-    device::Symbol = :cpu
+    device::Symbol = :auto
 end
 
 KeemenaLM.Core.tokenizer_encode(tokenizer::KeemenaSubwords.AbstractSubwordTokenizer, text::AbstractString) =
@@ -55,7 +55,7 @@ function v8_parse_behavior_eval_args(args)::V8BehaviorEvalSettings
     max_new_tokens = 100
     prompt_limit = 0
     seed = 20260615
-    device = :cpu
+    device = :auto
 
     argument_index = 1
     while argument_index <= length(args)
@@ -134,7 +134,7 @@ Options:
   --max-new-tokens N            Tokens per behavior prompt. Defaults to 100.
   --prompt-limit N              Limit behavior prompts for smoke tests. 0 means all prompts.
   --seed N                      Greedy generation seed. Defaults to 20260615.
-  --device cpu|gpu|auto         Inference device. Defaults to cpu.
+  --device cpu|gpu|auto         Inference device. Defaults to auto.
 """)
 end
 
@@ -253,7 +253,7 @@ function v8_behavior_case_dict(case)
 end
 
 function v8_behavior_command_allows_gpu(args)::Bool
-    device = :cpu
+    device = :auto
     argument_index = 1
     while argument_index <= length(args)
         if args[argument_index] == "--device"

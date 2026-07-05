@@ -78,14 +78,14 @@ CUDA_VISIBLE_DEVICES=0 julia --project=tools/subword_real_text tools/run_tiny_ch
   --run-dir path/to/extracted-artifact \
   --bundle-dir path/to/extracted-artifact/bundle \
   --tokenizer-bundle-dir path/to/extracted-artifact/tokenizer_bundle \
-  --device gpu \
+  --device auto \
   --temperature 0.0 \
   --top-k 0 \
   --top-p 1.0 \
   --max-new-tokens 120
 ```
 
-Use `--device cpu` if no compatible GPU is available.
+`--device auto` uses CUDA when available and falls back to CPU.
 INNER_EOF
 
 (

@@ -60,7 +60,7 @@ Current chatbot tools can use the model key directly:
 ```bash
 julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.jl \
   --model-key tiny-chatbot-v9-broad-336m \
-  --device cpu
+  --device auto
 ```
 
 The same `--model-key` option works for the behavior evaluator and chat REPL.

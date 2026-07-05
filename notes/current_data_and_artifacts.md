@@ -81,7 +81,7 @@ Prompt probe:
 ```bash
 julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.jl \
   --model-key tiny-chatbot-v9-broad-336m \
-  --device cpu
+  --device auto
 ```
 
 Behavior eval and the REPL accept the same `--model-key` option.

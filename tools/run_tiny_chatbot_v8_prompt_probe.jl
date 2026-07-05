@@ -23,7 +23,7 @@ Base.@kwdef struct V8PromptProbeSettings
     top_k::Int = 0
     top_p::Float64 = 1.0
     seed::Union{Nothing,Int} = 20260419
-    device::Symbol = :cpu
+    device::Symbol = :auto
 end
 
 KeemenaLM.Core.tokenizer_encode(tokenizer::KeemenaSubwords.AbstractSubwordTokenizer, text::AbstractString) =
@@ -50,7 +50,7 @@ function parse_args(args)::V8PromptProbeSettings
     top_k = 0
     top_p = 1.0
     seed = 20260419
-    device = :cpu
+    device = :auto
 
     argument_index = 1
     while argument_index <= length(args)
@@ -152,7 +152,7 @@ Options:
   --temperature X               Sampling temperature. Defaults to 0.0.
   --top-k N                     Sampling top-k. Defaults to 0.
   --top-p X                     Sampling top-p. Defaults to 1.0.
-  --device cpu|gpu|auto         Inference device. Defaults to cpu.
+  --device cpu|gpu|auto         Inference device. Defaults to auto.
 """)
 end
 
@@ -212,7 +212,7 @@ function pretty_completion(completion::AbstractString)::String
 end
 
 function command_allows_gpu_device(args)::Bool
-    device = :cpu
+    device = :auto
     argument_index = 1
     while argument_index <= length(args)
         if args[argument_index] == "--device"

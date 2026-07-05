@@ -93,20 +93,19 @@ julia --project=. -e 'using Pkg; Pkg.instantiate()'
 julia --project=tools/subword_real_text -e 'using Pkg; Pkg.instantiate()'
 ```
 
-After the v9 model artifact is published and bound in `artifacts/Artifacts.toml`,
-run:
+The v9 model artifact is bound in `artifacts/Artifacts.toml`. Run:
 
 ```bash
 julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_chat_repl.jl \
   --model-key tiny-chatbot-v9-broad-336m \
-  --device cpu \
+  --device auto \
   --temperature 0.0 \
   --top-k 0 \
   --top-p 1.0 \
   --max-new-tokens 120
 ```
 
-Use `--device gpu` with `CUDA_VISIBLE_DEVICES=0` on a compatible NVIDIA setup.
+The default `--device auto` uses CUDA when available and falls back to CPU.
 
 ### 2. Add The Package From GitHub In Julia
 
@@ -141,7 +140,7 @@ The chatbot tools can then load both the weights and tokenizer sidecar by key:
 ```bash
 julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_prompt_probe.jl \
   --model-key tiny-chatbot-v9-broad-336m \
-  --device cpu
+  --device auto
 ```
 
 For local development on an unpublished run, use the explicit `--run-dir`, `--bundle-dir`, and `--tokenizer-bundle-dir` form below.
@@ -168,7 +167,7 @@ CUDA_VISIBLE_DEVICES=0 julia --project=tools/subword_real_text tools/run_tiny_ch
   --run-dir tmp/tiny_chatbot_v9_broad_336m_run \
   --bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/bundle \
   --tokenizer-bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/tokenizer_bundle \
-  --device gpu \
+  --device auto \
   --temperature 0.0 \
   --top-k 0 \
   --top-p 1.0 \
@@ -182,14 +181,14 @@ CUDA_VISIBLE_DEVICES=0 julia --project=tools/subword_real_text tools/run_tiny_ch
   --run-dir tmp/tiny_chatbot_v9_broad_336m_run \
   --bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/bundle \
   --tokenizer-bundle-dir tmp/tiny_chatbot_v9_broad_336m_run/tokenizer_bundle \
-  --device gpu \
+  --device auto \
   --temperature 0.0 \
   --top-k 0 \
   --top-p 1.0 \
   --max-new-tokens 120
 ```
 
-Use `--device cpu` if no compatible GPU is available. Type `/exit` or `/quit`
+`--device auto` falls back to CPU if CUDA is unavailable. Type `/exit` or `/quit`
 to leave the REPL.
 
 ## Rebuild Data
