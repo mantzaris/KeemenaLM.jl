@@ -14,6 +14,12 @@ Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
 
 [compat]
+ChainRulesCore = "1"
+Flux = "0.16"
+JLD2 = "0.6"
+JSON3 = "1"
+Lux = "1.31"
+StructTypes = "1"
 julia = "1.10"
 
 [extras]
