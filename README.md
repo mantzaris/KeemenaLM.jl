@@ -13,6 +13,19 @@ This repository does not ship a production chatbot. The strongest current model
 is a partial 336M parameter baseline that proves the Julia pipeline works and
 documents clear data and evaluation failures.
 
+# Quick Start
+
+```
+git clone --branch v0.1.0 https://github.com/mantzaris/KeemenaSubwords.jl
+git clone --branch v0.1.0 https://github.com/mantzaris/KeemenaLM.jl
+cd KeemenaLM.jl
+
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=tools/subword_real_text -e 'using Pkg; Pkg.instantiate()'
+
+julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_chat_repl.jl --model-key tiny-chatbot-v9-broad-336m --device auto
+```
+
 ## Current Baseline
 
 The current scratch-chatbot baseline is the broad v9 336M run:
