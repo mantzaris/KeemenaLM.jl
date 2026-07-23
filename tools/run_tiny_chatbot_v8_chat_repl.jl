@@ -151,8 +151,8 @@ end
 
 function parse_device(argument::AbstractString)::Symbol
     device = Symbol(lowercase(argument))
-    device in (:cpu, :gpu, :auto) ||
-        throw(ArgumentError("--device must be cpu, gpu, or auto"))
+    device in (:cpu, :gpu, :auto, :metal) ||
+        throw(ArgumentError("--device must be cpu, gpu, metal, or auto"))
     return device
 end
 
@@ -173,7 +173,7 @@ Options:
   --no-seed                     Use a time-based sampling seed.
   --system-prompt TEXT          Optional system prompt. Empty by default because the corpus did not train on system turns.
   --stateful                    Keep prior turns in the prompt. Default is stateless one-turn prompts.
-  --device cpu|gpu|auto         Inference device. Defaults to auto.
+    --device cpu|gpu|metal|auto   Inference device. Defaults to auto.
 """)
 end
 
@@ -329,7 +329,7 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     if !any(argument -> argument in ("--help", "-h"), ARGS)
-        command_allows_gpu_device(ARGS) && KeemenaLM.FluxBackend.has_functional_cuda_gpu()
+        command_allows_gpu_device(ARGS) && KeemenaLM.FluxBackend.has_functional_gpu()
     end
     Base.invokelatest(main, ARGS)
 end

@@ -85,8 +85,10 @@ function parse_device(value::AbstractString)::Symbol
         return :cpu
     elseif normalized_value == "gpu"
         return :gpu
+    elseif normalized_value == "metal"
+        return :metal
     else
-        throw(ArgumentError("--device must be one of auto, cpu, or gpu"))
+        throw(ArgumentError("--device must be one of auto, cpu, gpu, or metal"))
     end
 end
 
