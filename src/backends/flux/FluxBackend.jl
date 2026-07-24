@@ -10,7 +10,7 @@ include("gpt2_flux.jl")
 include("weights_flux.jl")
 include("train_flux.jl")
 
-export FluxGPT2Model, build_gpt2_model, instantiate, move_model_to_device, move_batch_to_device, has_functional_cuda_gpu
+export FluxGPT2Model, build_gpt2_model, instantiate, move_model_to_device, move_batch_to_device, has_functional_cuda_gpu, has_functional_gpu
 
 function instantiate(config_or_bundle; keyword_arguments...)
     if config_or_bundle isa GPT2Config
