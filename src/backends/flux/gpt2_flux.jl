@@ -118,18 +118,30 @@ model_config(model::FluxGPT2Model) = model.config
 
 function move_model_to_device(model::FluxGPT2Model; device::Symbol = :cpu)
     selected_device = resolve_flux_device(device)
-    return selected_device === :gpu ? cuda_cu(model) : Flux.cpu(model)
+    if selected_device === :gpu
+        return cuda_cu(model)
+    elseif selected_device === :metal
+        return metal_to_device(model)
+    else
+        return Flux.cpu(model)
+    end
 end
 
 function move_batch_to_device(batch; device::Symbol = :cpu)
     selected_device = resolve_flux_device(device)
 
-    # Supported Stage 4 policy: token-id batches remain on CPU even when model/compute move to CUDA.
+    # Supported Stage 4 policy: token-id batches remain on CPU even when model/compute move to a GPU.
     if batch isa AbstractArray && eltype(batch) <: Integer
         return Flux.cpu(batch)
     end
 
-    return selected_device === :gpu ? cuda_cu(batch) : Flux.cpu(batch)
+    if selected_device === :gpu
+        return cuda_cu(batch)
+    elseif selected_device === :metal
+        return metal_to_device(batch)
+    else
+        return Flux.cpu(batch)
+    end
 end
 
 const CUDA_PACKAGE_ID = Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA")
@@ -142,10 +154,16 @@ function resolve_flux_device(device::Symbol)::Symbol
     elseif device === :gpu
         has_functional_cuda_gpu() || throw(ArgumentError("device=:gpu requested but no functional NVIDIA/CUDA backend is available"))
         return :gpu
+    elseif device === :metal
+        metal_extension() === nothing &&
+            throw(ArgumentError("device=:metal requested, but the Metal extension is not loaded; install Metal.jl in the active environment and run `using Metal` before requesting this device"))
+        has_functional_metal_gpu() ||
+            throw(ArgumentError("device=:metal requested, but the loaded Metal.jl installation did not report a functional Metal device"))
+        return :metal
     elseif device === :auto
-        return has_functional_cuda_gpu() ? :gpu : :cpu
+        return has_functional_cuda_gpu() ? :gpu : (has_functional_metal_gpu() ? :metal : :cpu)
     else
-        throw(ArgumentError("unsupported Flux device $(device); expected :cpu, :gpu, or :auto"))
+        throw(ArgumentError("unsupported Flux device $(device); expected :cpu, :gpu, :metal, or :auto"))
     end
 end
 
@@ -179,11 +197,39 @@ function cuda_cu(data)
     return Base.invokelatest(getproperty(cuda, :cu), data)
 end
 
+function metal_extension()
+    return Base.get_extension(parentmodule(@__MODULE__), :KeemenaLMMetalExt)
+end
+
+function has_functional_metal_gpu()::Bool
+    extension_module = metal_extension()
+    extension_module === nothing && return false
+
+    try
+        return extension_module.functional() === true
+    catch exception
+        @debug "Metal functionality check failed; treating Metal as unavailable" exception = (exception, catch_backtrace())
+        return false
+    end
+end
+
+function metal_to_device(data)
+    extension_module = metal_extension()
+    extension_module === nothing &&
+        throw(ArgumentError("device=:metal requested, but the Metal extension is not loaded; install Metal.jl in the active environment and run `using Metal` before requesting this device"))
+    return extension_module.to_device(data)
+end
+
 function is_cuda_array(reference)
     reference isa Array && return false
     cuda = cuda_module()
     cuda === nothing && return false
     return reference isa getproperty(cuda, :CuArray)
+end
+
+function is_metal_array(reference)
+    extension_module = metal_extension()
+    return extension_module !== nothing && extension_module.is_device_array(reference)
 end
 
 function initialized_parameter(rows::Int, columns::Int, offset::Int; scale::Float32)::Matrix{Float32}
@@ -260,7 +306,11 @@ function attention_head_output(
     return values * permutedims(attention_weights, (2, 1))
 end
 
-move_like(data, reference) = is_cuda_array(reference) ? cuda_cu(data) : Flux.cpu(data)
+function move_like(data, reference)
+    reference isa Array && return Flux.cpu(data)
+    is_metal_array(reference) && return metal_to_device(data)
+    return is_cuda_array(reference) ? cuda_cu(data) : Flux.cpu(data)
+end
 
 function causal_mask_like(sequence_length::Int, reference)
     return ChainRulesCore.ignore_derivatives() do
@@ -284,7 +334,7 @@ function lm_forward(
 )
     cache === nothing || throw(ArgumentError("Stage 1 Flux lm_forward does not support cache yet"))
 
-    # Supported Stage 4 policy: token-id batches stay on CPU even when the model is moved to CUDA.
+    # Supported Stage 4 policy: token-id batches stay on CPU even when the model is moved to a GPU.
     input_token_ids = Flux.cpu(input_token_ids)
 
     sequence_length, batch_size = size(input_token_ids)

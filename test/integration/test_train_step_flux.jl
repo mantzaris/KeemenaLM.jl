@@ -2,6 +2,10 @@ using Flux
 using Test
 
 @testset "Flux device helper semantics" begin
+    @test Base.get_extension(KeemenaLM, :KeemenaLMMetalExt) === nothing
+    @test !KeemenaLM.FluxBackend.has_functional_metal_gpu()
+    @test KeemenaLM.FluxBackend.resolve_flux_device(:cpu) === :cpu
+
     config = KeemenaLM.GPT2Config(
         vocab_size = 8,
         context_length = 4,
@@ -25,6 +29,21 @@ using Test
     @test cpu_batch isa Matrix{Int}
     @test cpu_float_batch isa Matrix{Float32}
     @test auto_batch isa Matrix{Int}
+    @test Base.get_extension(KeemenaLM, :KeemenaLMMetalExt) === nothing
+
+    metal_error = try
+        KeemenaLM.FluxBackend.move_model_to_device(model; device = :metal)
+        nothing
+    catch exception
+        exception
+    end
+    @test metal_error isa ArgumentError
+    if metal_error isa ArgumentError
+        error_message = sprint(showerror, metal_error)
+        @test occursin("device=:metal", error_message)
+        @test occursin("install Metal.jl", error_message)
+        @test occursin("using Metal", error_message)
+    end
 
     if KeemenaLM.FluxBackend.has_functional_cuda_gpu()
         @test !(auto_model.token_embedding isa Matrix{Float32})
