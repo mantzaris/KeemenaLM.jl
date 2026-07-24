@@ -120,11 +120,18 @@ julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_chat_repl.jl \
 
 The default `--device auto` uses CUDA when available and falls back to CPU.
 
-Note: experimental Metal.jl support for Apple M-series GPUs was added. The Flux
-backend will detect a functional Metal.jl installation and use it as a GPU
-backend when `--device gpu` or `--device auto` is selected. Install with
-`] add Metal` in your Julia environment. If both CUDA.jl and Metal.jl are
-available, CUDA will be preferred.
+Metal.jl support is optional and experimental. KeemenaLM does not install or
+load Metal, so CPU and CUDA users do not need it. On compatible Apple hardware,
+install and explicitly load Metal before requesting `device = :metal`:
+
+```julia
+pkg> add Metal
+julia> using KeemenaLM, Metal
+```
+
+Once loaded, Metal may also be selected by `device = :auto` after CUDA.
+`device = :gpu` remains CUDA-specific. Metal runtime behavior still requires
+validation on compatible Apple hardware.
 
 ### 2. Add The Package From GitHub In Julia
 

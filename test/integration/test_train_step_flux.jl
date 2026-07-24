@@ -2,6 +2,10 @@ using Flux
 using Test
 
 @testset "Flux device helper semantics" begin
+    @test Base.get_extension(KeemenaLM, :KeemenaLMMetalExt) === nothing
+    @test !KeemenaLM.FluxBackend.has_functional_metal_gpu()
+    @test KeemenaLM.FluxBackend.resolve_flux_device(:cpu) === :cpu
+
     config = KeemenaLM.GPT2Config(
         vocab_size = 8,
         context_length = 4,
@@ -25,14 +29,25 @@ using Test
     @test cpu_batch isa Matrix{Int}
     @test cpu_float_batch isa Matrix{Float32}
     @test auto_batch isa Matrix{Int}
+    @test Base.get_extension(KeemenaLM, :KeemenaLMMetalExt) === nothing
 
-    if KeemenaLM.FluxBackend.has_functional_gpu()
-        # Explicitly move to GPU and verify float arrays / model params become GPU arrays.
-        # Converting the raw arrays with the GPU conversion helper should succeed
-        converted_embedding = KeemenaLM.FluxBackend.gpu_cu(model.token_embedding)
-        @test KeemenaLM.FluxBackend.is_gpu_array(converted_embedding)
-        gpu_float_batch = KeemenaLM.FluxBackend.move_batch_to_device(float_batch; device = :gpu)
-        @test KeemenaLM.FluxBackend.is_gpu_array(gpu_float_batch)
+    metal_error = try
+        KeemenaLM.FluxBackend.move_model_to_device(model; device = :metal)
+        nothing
+    catch exception
+        exception
+    end
+    @test metal_error isa ArgumentError
+    if metal_error isa ArgumentError
+        error_message = sprint(showerror, metal_error)
+        @test occursin("device=:metal", error_message)
+        @test occursin("install Metal.jl", error_message)
+        @test occursin("using Metal", error_message)
+    end
+
+    if KeemenaLM.FluxBackend.has_functional_cuda_gpu()
+        @test !(auto_model.token_embedding isa Matrix{Float32})
+        @test !(auto_float_batch isa Matrix{Float32})
         gpu_token_batch = KeemenaLM.FluxBackend.move_batch_to_device(batch; device = :gpu)
         @test gpu_token_batch isa Matrix{Int}
     else
