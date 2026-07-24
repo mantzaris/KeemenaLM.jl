@@ -1110,7 +1110,7 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     if !any(argument -> argument in ("--help", "-h"), ARGS)
-        command_allows_gpu_device(ARGS) && KeemenaLM.FluxBackend.has_functional_cuda_gpu()
+        command_allows_gpu_device(ARGS) && KeemenaLM.FluxBackend.has_functional_gpu()
     end
     Base.invokelatest(main_v8, ARGS)
 end

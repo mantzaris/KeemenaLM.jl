@@ -7,14 +7,16 @@ Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 KeemenaLM = "2fc6a9bc-fb8b-4174-8db3-ef58dc8a472f"
 KeemenaSubwords = "891fdae5-3dc6-4d0d-8da0-c6f1d38b32bd"
+Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 
 [sources]
-KeemenaLM = { path = "../.." }
-KeemenaSubwords = { path = "../../../KeemenaSubwords.jl" }
+KeemenaLM = {path = "../.."}
+KeemenaSubwords = {path = "../../../KeemenaSubwords.jl"}
 
 [compat]
 Flux = "0.16"
 JSON3 = "1"
 KeemenaLM = "0.1.0"
 KeemenaSubwords = "0.1.0"
+Metal = "1.10.0"
 julia = "1.10"
