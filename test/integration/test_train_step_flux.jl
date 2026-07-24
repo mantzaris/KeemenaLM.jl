@@ -26,13 +26,9 @@ using Test
     @test cpu_float_batch isa Matrix{Float32}
     @test auto_batch isa Matrix{Int}
 
-    if KeemenaLM.FluxBackend.has_functional_gpu()
-        # Explicitly move to GPU and verify float arrays / model params become GPU arrays.
-        # Converting the raw arrays with the GPU conversion helper should succeed
-        converted_embedding = KeemenaLM.FluxBackend.gpu_cu(model.token_embedding)
-        @test KeemenaLM.FluxBackend.is_gpu_array(converted_embedding)
-        gpu_float_batch = KeemenaLM.FluxBackend.move_batch_to_device(float_batch; device = :gpu)
-        @test KeemenaLM.FluxBackend.is_gpu_array(gpu_float_batch)
+    if KeemenaLM.FluxBackend.has_functional_cuda_gpu()
+        @test !(auto_model.token_embedding isa Matrix{Float32})
+        @test !(auto_float_batch isa Matrix{Float32})
         gpu_token_batch = KeemenaLM.FluxBackend.move_batch_to_device(batch; device = :gpu)
         @test gpu_token_batch isa Matrix{Int}
     else

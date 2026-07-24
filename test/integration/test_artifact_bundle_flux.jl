@@ -164,7 +164,7 @@ end
         KeemenaLM.save_bundle(collision_bundle_directory, bundle)
 
         cd(temporary_directory) do
-            @test realpath(KeemenaLM.resolve_bundle("tiny-demo"; artifacts_toml = artifacts_toml)) == realpath(abspath(collision_bundle_directory))
+            @test KeemenaLM.resolve_bundle("tiny-demo"; artifacts_toml = artifacts_toml) == abspath(collision_bundle_directory)
         end
 
         rm(collision_bundle_directory; recursive = true)

@@ -120,12 +120,6 @@ julia --project=tools/subword_real_text tools/run_tiny_chatbot_v8_chat_repl.jl \
 
 The default `--device auto` uses CUDA when available and falls back to CPU.
 
-Note: experimental Metal.jl support for Apple M-series GPUs was added. The Flux
-backend will detect a functional Metal.jl installation and use it as a GPU
-backend when `--device gpu` or `--device auto` is selected. Install with
-`] add Metal` in your Julia environment. If both CUDA.jl and Metal.jl are
-available, CUDA will be preferred.
-
 ### 2. Add The Package From GitHub In Julia
 
 This is the package/API path. It is useful for loading bundles, using the model

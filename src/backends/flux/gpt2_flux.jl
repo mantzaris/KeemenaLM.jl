@@ -118,57 +118,34 @@ model_config(model::FluxGPT2Model) = model.config
 
 function move_model_to_device(model::FluxGPT2Model; device::Symbol = :cpu)
     selected_device = resolve_flux_device(device)
-    if selected_device === :gpu
-        return gpu_cu(model)
-    elseif selected_device === :metal
-        return metal_cu(model)
-    else
-        return Flux.cpu(model)
-    end
+    return selected_device === :gpu ? cuda_cu(model) : Flux.cpu(model)
 end
 
 function move_batch_to_device(batch; device::Symbol = :cpu)
     selected_device = resolve_flux_device(device)
 
-    # Supported Stage 4 policy: token-id batches remain on CPU even when model/compute move to GPU.
+    # Supported Stage 4 policy: token-id batches remain on CPU even when model/compute move to CUDA.
     if batch isa AbstractArray && eltype(batch) <: Integer
         return Flux.cpu(batch)
     end
 
-    if selected_device === :gpu
-        return gpu_cu(batch)
-    elseif selected_device === :metal
-        return metal_cu(batch)
-    else
-        return Flux.cpu(batch)
-    end
+    return selected_device === :gpu ? cuda_cu(batch) : Flux.cpu(batch)
 end
 
 const CUDA_PACKAGE_ID = Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA")
 const _CUDA_MODULE = Ref{Union{Nothing, Module}}(nothing)
 const _CUDA_FUNCTIONAL = Ref{Union{Nothing, Bool}}(nothing)
 
-const METAL_PACKAGE_ID = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000000000"), "Metal")
-const _METAL_MODULE = Ref{Union{Nothing, Module}}(nothing)
-const _METAL_FUNCTIONAL = Ref{Union{Nothing, Bool}}(nothing)
-
-const _CURRENT_GPU_BACKEND = Ref{Union{Nothing, Symbol}}(nothing)
-
 function resolve_flux_device(device::Symbol)::Symbol
     if device === :cpu
         return :cpu
     elseif device === :gpu
-        has_functional_gpu() || throw(ArgumentError("device=:gpu requested but no functional GPU backend (CUDA or Metal) is available"))
-        # prefer CUDA when present, otherwise use Metal
-        return has_functional_cuda_gpu() ? :gpu : :metal
-    elseif device === :metal
-        has_functional_metal_gpu() || throw(ArgumentError("device=:metal requested but Metal.jl is not available or not functional"))
-        return :metal
+        has_functional_cuda_gpu() || throw(ArgumentError("device=:gpu requested but no functional NVIDIA/CUDA backend is available"))
+        return :gpu
     elseif device === :auto
-        # prefer CUDA, then Metal, else CPU
-        return has_functional_cuda_gpu() ? :gpu : (has_functional_metal_gpu() ? :metal : :cpu)
+        return has_functional_cuda_gpu() ? :gpu : :cpu
     else
-        throw(ArgumentError("unsupported Flux device $(device); expected :cpu, :gpu, :metal, or :auto"))
+        throw(ArgumentError("unsupported Flux device $(device); expected :cpu, :gpu, or :auto"))
     end
 end
 
@@ -184,48 +161,6 @@ function has_functional_cuda_gpu()::Bool
     functional = Base.invokelatest(getproperty(cuda, :functional))
     _CUDA_FUNCTIONAL[] = functional
     return functional
-end
-
-function metal_module()
-    _METAL_MODULE[] !== nothing && return _METAL_MODULE[]
-
-    # Try to import the Metal module into Main and return it if successful.
-    try
-        @eval Main import Metal
-        module_object = get(Base.loaded_modules, :Metal, nothing)
-        if module_object === nothing && isdefined(Main, :Metal)
-            module_object = Base.invokelatest(getfield, Main, :Metal)
-        end
-        _METAL_MODULE[] = module_object
-        return module_object
-    catch err
-        _METAL_MODULE[] = nothing
-        return nothing
-    end
-end
-
-function has_functional_metal_gpu()::Bool
-    _METAL_FUNCTIONAL[] !== nothing && return _METAL_FUNCTIONAL[]::Bool
-
-    metal = metal_module()
-    if metal === nothing
-        _METAL_FUNCTIONAL[] = false
-        return false
-    end
-
-    # Many GPU packages expose a `functional` boolean similar to CUDA.jl; if not, assume true.
-    functional = try
-        Base.invokelatest(getproperty(metal, :functional))
-    catch _
-        true
-    end
-
-    _METAL_FUNCTIONAL[] = functional
-    return functional
-end
-
-function has_functional_gpu()::Bool
-    has_functional_cuda_gpu() || has_functional_metal_gpu()
 end
 
 function cuda_module()
@@ -244,131 +179,11 @@ function cuda_cu(data)
     return Base.invokelatest(getproperty(cuda, :cu), data)
 end
 
-function metal_cu(data)
-    metal = metal_module()
-    metal === nothing && throw(ArgumentError("Metal.jl is not available in this environment"))
-
-    # If already a Metal GPU array, return as-is
-    if is_metal_array(data)
-        return data
-    end
-
-    # Prefer a generic `device` conversion if provided
-    if isdefined(metal, :device)
-        try
-            return Base.invokelatest(getproperty(metal, :device), data)
-        catch _
-        end
-    end
-
-    # Recursively convert arrays and nested structs to Metal arrays where appropriate.
-    function deep_convert(v)
-        # Already metal array
-        is_metal_array(v) && return v
-
-        # Keep integer arrays on CPU (token ids)
-        if v isa AbstractArray && eltype(v) <: Integer
-            return v
-        end
-
-        # Convert floating-point arrays
-        if v isa AbstractArray && eltype(v) <: AbstractFloat
-            for name in (:MtlArray, :MtlDeviceArray, :MtlDeviceVector, :MtlDeviceMatrix, :WrappedMtlArray)
-                if isdefined(metal, name)
-                    try
-                        ctor = getproperty(metal, name)
-                        return Base.invokelatest(ctor, v)
-                    catch _
-                    end
-                end
-            end
-            # fallback to MtlArray constructor if present
-            if isdefined(metal, :MtlArray)
-                return Base.invokelatest(getproperty(metal, :MtlArray), v)
-            end
-            throw(ArgumentError("No Metal constructor found for arrays"))
-        end
-
-        # Tuples, NamedTuples, Vectors, Dicts
-        if v isa Tuple
-            return tuple((deep_convert(x) for x in v)...)
-        elseif v isa NamedTuple
-            names = propertynames(v)
-            vals = (deep_convert(getfield(v, n)) for n in names)
-            return NamedTuple{names}(collect(vals))
-        elseif v isa AbstractVector
-            return [deep_convert(x) for x in v]
-        elseif v isa Dict
-            d = Dict()
-            for (k, val) in v
-                d[k] = deep_convert(val)
-            end
-            return d
-        end
-
-        # For composite types (structs), attempt to reconstruct with converted fields
-        fldnames = fieldnames(typeof(v))
-        if !isempty(fldnames)
-            converted = Any[]
-            for f in fldnames
-                push!(converted, deep_convert(getfield(v, f)))
-            end
-            try
-                return Base.invokelatest(typeof(v), converted...)
-            catch _
-                return v
-            end
-        end
-
-        return v
-    end
-
-    return deep_convert(data)
-end
-
 function is_cuda_array(reference)
     reference isa Array && return false
     cuda = cuda_module()
     cuda === nothing && return false
     return reference isa getproperty(cuda, :CuArray)
-end
-
-function is_metal_array(reference)
-    reference isa Array && return false
-    metal = metal_module()
-    metal === nothing && return false
-
-    # Check against a few possible Metal array types
-    for name in (:MtlDeviceArray, :MtlArray, :MtlDeviceVector, :MtlDeviceMatrix, :WrappedMtlArray)
-        if isdefined(metal, name)
-            try
-                if reference isa Base.invokelatest(getproperty, metal, name)
-                    return true
-                end
-            catch _
-            end
-        end
-    end
-    return false
-end
-
-"""
-Return true if `reference` is a GPU array for any supported GPU backend.
-This is a generic helper intended for tests and backend-agnostic checks.
-"""
-function is_gpu_array(reference)
-    return is_cuda_array(reference) || is_metal_array(reference)
-end
-
-function gpu_cu(data)
-    # route to the available GPU backend (prefer CUDA)
-    if has_functional_cuda_gpu()
-        return cuda_cu(data)
-    elseif has_functional_metal_gpu()
-        return metal_cu(data)
-    else
-        throw(ArgumentError("No functional GPU backend available"))
-    end
 end
 
 function initialized_parameter(rows::Int, columns::Int, offset::Int; scale::Float32)::Matrix{Float32}
