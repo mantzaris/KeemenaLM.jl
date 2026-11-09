@@ -1,7 +1,7 @@
 name = "KeemenaLM"
 uuid = "2fc6a9bc-fb8b-4174-8db3-ef58dc8a472f"
-authors = ["Alexander V. Mantzaris"]
 version = "0.1.0"
+authors = ["Alexander V. Mantzaris"]
 
 [deps]
 Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -20,6 +20,7 @@ Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 KeemenaLMMetalExt = "Metal"
 
 [compat]
+Artifacts = "1"
 ChainRulesCore = "1"
 Flux = "0.16"
 JLD2 = "0.6"
